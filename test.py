@@ -26,6 +26,8 @@ def main(cfg: TestConfig = None):
     print(OmegaConf.to_yaml(cfg, resolve=True))
     use_hq = True
 
+    # print('cfg (1) = ', cfg)
+
     device = os.environ.get("TORCH_DEVICE", "cuda:0")
     out_root = Path(HydraConfig.get().runtime.output_dir)  # experiment/test/ckpt
 

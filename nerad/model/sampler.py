@@ -18,7 +18,8 @@ class ShapeSampler():
         pos_rnd = self.sampler.next_2d(active)
         dir_rnd = self.sampler.next_2d(active)
 
-        print('dir(shape) = ', dir(shape))
+        # mi.cuda_ad_rgb.ShapePtr
+        # print('dir(shape) = ', dir(shape))
         pos_samples = shape.sample_position(time = 0,sample = pos_rnd)
 
         si = mi.SurfaceInteraction3f(ps = pos_samples,wavelengths = [])
@@ -46,7 +47,7 @@ class ShapeSampler():
         return self.PCG
 
     def sample_input(self, scene, n, seed):
-        sample_on_shape = False
+        sample_on_shape = True
 
         self.sampler.set_sample_count(n)
         self.sampler.seed(seed, n)
@@ -59,7 +60,7 @@ class ShapeSampler():
             indices = self.sample_valid_shape_indices()
 
             shape = dr.gather(mi.ShapePtr, shapes, indices)
-            print('El tipo de shape es: ', type(shape))
+            # print('El tipo de shape es: ', type(shape))
             active = ~dr.isnan(indices)
             si, prob  = self.sample_on_shape(active, shape)
             to_ret = si

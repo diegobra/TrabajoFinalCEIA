@@ -40,9 +40,17 @@ def render_and_save_image(
     if formats is None:
         formats = ["png", "exr"]
 
+    # print('entro1')
+
     with torch.no_grad():
+        # print('entro2')
         with dr.suspend_grad():
+            # print('entro3')
+            # print('scene = ', scene)
+            # print('integrator = ', integrator)
+            # print('sensor = ', sensor)
             img = mi.render(scene, spp=rendering.spp, integrator=integrator, sensor=sensor)
+            # print('entro4')
 
             if "nerad" in rendering.integrator:
                 _, LHS, RHS = process_nerad_output(img)
