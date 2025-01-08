@@ -1,6 +1,7 @@
 import drjit as dr
 import mitsuba as mi
 
+import utils_diego as diego
 
 class ShapeSampler():
     def __init__(self, scene, no_specular_samples) -> None:
@@ -63,6 +64,7 @@ class ShapeSampler():
             # print('El tipo de shape es: ', type(shape))
             active = ~dr.isnan(indices)
             si, prob  = self.sample_on_shape(active, shape)
+            #diego.render_scene_in_popup(scene, si)
             to_ret = si
         else:
             pos = mi.Vector3f(self.sampler.next_1d(), self.sampler.next_1d(), self.sampler.next_1d())

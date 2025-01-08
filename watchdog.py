@@ -24,6 +24,8 @@ def main():
 
     argv = sys.argv[1:]
 
+    print('argv = ', argv)
+
     extra_args = []
     if "--" in argv:
         split_idx = argv.index("--")
@@ -33,6 +35,20 @@ def main():
     args = parser.parse_args(argv)
     max_retries = args.max_retries
     print(max_retries)
+
+    print('extra_args = ', extra_args)
+
+    # Ejecutar el comando source en un shell interactivo
+    command = "source ./init/init.source && echo 'Script sourced successfully'"
+    result = subprocess.run(
+        ["bash", "-c", command],
+        capture_output=True,
+        text=True
+    )
+
+    # Verificar la salida
+    print("STDOUT:", result.stdout)
+    print("STDERR:", result.stderr)
 
     # find output folder
     proc = subprocess.run(
