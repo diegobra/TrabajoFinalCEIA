@@ -57,11 +57,20 @@ class ShapeSampler():
         dr.eval()
 
         if (sample_on_shape):
+
+            # Obtiene la lista de formas en la escena
+            # Ej. en Cornell Box son 8 incluyendo paredes, techo, piso y fuente de luz (Rectangle)
+            # y dos cajas (Cube)
             shapes = scene.shapes_dr()
+
+            # Se obtienen índices random según el tamaño del sampleo (ej. 32768)
             indices = self.sample_valid_shape_indices()
 
+            # Se obtienen la formas correspondientes a los índices sampleados (ej. Rectangle, Cube, Cube, Cube, etc.)
             shape = dr.gather(mi.ShapePtr, shapes, indices)
             # print('El tipo de shape es: ', type(shape))
+
+            # Revisar para qué se hace esto. Ver en qué caso active podría tener algún elemento en False
             active = ~dr.isnan(indices)
             si, prob  = self.sample_on_shape(active, shape)
             #diego.render_scene_in_popup(scene, si)

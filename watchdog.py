@@ -38,18 +38,6 @@ def main():
 
     print('extra_args = ', extra_args)
 
-    # Ejecutar el comando source en un shell interactivo
-    command = "source ./init/init.source && echo 'Script sourced successfully'"
-    result = subprocess.run(
-        ["bash", "-c", command],
-        capture_output=True,
-        text=True
-    )
-
-    # Verificar la salida
-    print("STDOUT:", result.stdout)
-    print("STDERR:", result.stderr)
-
     # find output folder
     proc = subprocess.run(
         [
