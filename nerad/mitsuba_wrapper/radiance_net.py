@@ -40,6 +40,7 @@ def embed(input_, embedding):
             net_in = embedding(input_)
         case _:
             raise Exception("Unhandled embedding")
+
     return net_in
 
 
@@ -82,21 +83,33 @@ class RadianceMLP(nn.Module):
     def forward(self, points, dirs, normals, albedo):
         net_in = torch.cat(
             [
-                embed(points, self.pos_emb),
-                embed(dirs, self.dir_emb)
+                embed(points, self.pos_emb),    # (HashGrid) torch.Size([32768, 99])
+                embed(dirs, self.dir_emb)       # (Identity) torch.Size([32768, 3])
             ],
             dim=-1,
         )
+
+        # A este punto net_in.shape = torch.Size([32768, 102])
+
         if self.scene_properties_input:
             net_in = torch.cat(
                 [
-                    net_in,
-                    embed(normals, self.dir_emb),
-                    albedo],
+                    net_in,                         # torch.Size([32768, 102])
+                    embed(normals, self.dir_emb),   # torch.Size([32768, 3])
+                    albedo],                        # torch.Size([32768, 3])
                 dim=-1,
             )
 
-        ret = self.network(net_in)
+        # A este punto net_in.shape = torch.Size([32768, 108])
+
+        # A la red se le va a pasar:
+        #   points              (32768, 3),
+        #   embedding<points>   (32768, 96),
+        #   dirs                (32768, 3)
+        #   normals             (32768, 3),
+        #   albedo              (32768, 3)
+
+        ret = self.network(net_in) # ret.shape = torch.Size([32768, 3])
         return torch.abs(ret)
 
 @wrapper_registry.register("radiance_net")
@@ -115,10 +128,10 @@ class MitsubaRadianceNetworkWrapper(MitsubaWrapper):
         self.network = RadianceMLP(width, hidden, position_embedding, direction_embedding, scene_properties_input)
 
     def _eval(self, pts, dirs, norms, albedo):
-        p_tensor = vec_to_tens_safe(pts + self.grad_activator)
-        d_tensor = vec_to_tens_safe(dirs)
-        n_tensor = vec_to_tens_safe(norms)
-        alb_tensor = vec_to_tens_safe(albedo)
+        p_tensor = vec_to_tens_safe(pts + self.grad_activator) # TensorXf(shape=(32768, 3))
+        d_tensor = vec_to_tens_safe(dirs) # TensorXf(shape=(32768, 3))
+        n_tensor = vec_to_tens_safe(norms) # TensorXf(shape=(32768, 3))
+        alb_tensor = vec_to_tens_safe(albedo) # TensorXf(shape=(32768, 3))
         torch_out = self.eval_torch(
             p_tensor, d_tensor, n_tensor, alb_tensor)
 
