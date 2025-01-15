@@ -53,9 +53,10 @@ class Nerad(MyPathTracer, nn.Module):
         return residual
 
     def sample(self,
-               scene: mi.Scene,
-               sampler: mi.Sampler,
-               ray: mi.Ray3f,
+               scene: mi.Scene,         # Información de la escena
+               sampler: mi.Sampler,     # Generador de números aleatorios
+               ray: mi.Ray3f,           # Rayos sampleados en la escena (sobre las diferentes formas)
+                                        # Recibe SurfaceInteraction cuando está entrenando y Ray3f cuando rederiza la imagen
                medium: mi.Medium,
                active: mi.Bool,
                **kwargs):
@@ -63,35 +64,53 @@ class Nerad(MyPathTracer, nn.Module):
         m = 1
         sampler_m = kwargs.get("sampler_m", None)
         if sampler_m is not None:
-            m = self.m
+            m = self.m # 32
 
-        depth = mi.UInt32(0)
-        eta = mi.Float(1)
-        throughput = mi.Spectrum(1)
+        depth = mi.UInt32(0)        # [0]
+        eta = mi.Float(1)           # [1.0]
+        throughput = mi.Spectrum(1) # [1.0, 1.0, 1.0]
+
         valid_ray = mi.Mask((~mi.Bool(self.hide_emitters))
-                            & dr.neq(scene.environment(), None))
+                            & dr.neq(scene.environment(), None)) # [False]
 
-        active = mi.Bool(active)                      # Active SIMD lanes
+        active = mi.Bool(active)  # Active SIMD lanes # [True]
 
         prev_si = dr.zeros(mi.SurfaceInteraction3f)
-        prev_bsdf_pdf = mi.Float(1.0)
-        prev_bsdf_delta = mi.Bool(True)
+        prev_bsdf_pdf = mi.Float(1.0) # [1,0]
+        prev_bsdf_delta = mi.Bool(True) # [True]
         bsdf_ctx = mi.BSDFContext()
 
         if isinstance(ray, mi.SurfaceInteraction3f):
+            # ray tiene tipo mi.SurfaceInteraction3f en el entrenamiento
             si = ray
             bsdf = si.bsdf()
             #Assertion: there shouldn't be ANY specualr sample here assuming that the code gets here only when residual sampling
             assert (dr.none(mi.has_flag(si.bsdf().flags(), mi.BSDFFlags.Delta)))
         else:
+            # Tiene tipo Ray3f en el renderizado de la imagen
             ray = mi.Ray3f(dr.detach(ray))
             si = scene.ray_intersect(ray,
                                      ray_flags=mi.RayFlags.All,
                                      coherent=dr.eq(depth, 0))
             bsdf = si.bsdf(ray)
 
+        # En bsdf queda una descripción detallada de la BSDF para cada interacción (ej. tipo de reflexión)
+        # Ej. para una intersección  particular:
+            # TwoSided[
+            #     brdf[0] = SmoothDiffuse[
+            #         reflectance = SRGBReflectanceSpectrum[
+            #         value = [[0.14, 0.45, 0.091]]
+            #         ]
+            #     ],
+            #     brdf[1] = SmoothDiffuse[
+            #         reflectance = SRGBReflectanceSpectrum[
+            #         value = [[0.14, 0.45, 0.091]]
+            #         ]
+            # ]
+
         # ---------------------- Handle specular surfaces (if any) ----------------------
 
+        # Esta función sólo se utiliza en nerad_specular. Para nerad no specular, simplemente retorna los mismos valores de entrada
         si, prev_si, prev_bsdf_pdf, prev_bsdf_delta, valid_ray, throughput, eta = self.trace_speculars(scene, sampler, si, active, prev_si, prev_bsdf_pdf, prev_bsdf_delta, valid_ray, throughput, eta)
         bsdf = si.bsdf()
 
