@@ -95,7 +95,7 @@ class Nerad(MyPathTracer, nn.Module):
             bsdf = si.bsdf(ray)
 
         # En bsdf queda una descripción detallada de la BSDF para cada interacción (ej. tipo de reflexión)
-        # Ej. para una intersección  particular:
+        # Ej. para una interacción particular:
             # TwoSided[
             #     brdf[0] = SmoothDiffuse[
             #         reflectance = SRGBReflectanceSpectrum[
@@ -116,7 +116,11 @@ class Nerad(MyPathTracer, nn.Module):
 
         # ---------------------- Eval LHS ----------------------
         pts, dirs, normals, albedo = self.extract_inputs(si)
+
+        # Se evalúa la radiosidad para cada interacción en la red neuronal
         LHS = self.network.eval(pts, dirs, normals, albedo)
+
+        # Se calcula LHS para los rayos válidos
         LHS = dr.select(active & si.is_valid(), throughput*LHS, mi.Vector3f(0))
 
         # ---------------------- Direct emission ----------------------
@@ -217,11 +221,13 @@ class Nerad(MyPathTracer, nn.Module):
         return rgb, valid_ray, [aov.x, aov.y, aov.z, dr.select(valid_ray, mi.Float(1), mi.Float(0)), residual.x, residual.y, residual.z]
 
     def extract_inputs(self, si):
-        pts = si.p
-        dirs = si.to_world(si.wi)
-        normals = si.sh_frame.n
-        normals = dr.select(dr.dot(dirs, normals)<0, -normals, normals)
-        albedo = dr.detach(self.get_albedo_detached(si))
+        pts = si.p # Puntos de interacción con la escena
+        dirs = si.to_world(si.wi)   # Direcciones para cada punto (se hace to_world para convertir desde el
+                                    # sistema de referencia local a la superficie al sistema de referencia global)
+        normals = si.sh_frame.n # sh_frame es el shading frame, el sistema de referencia local
+        normals = dr.select(dr.dot(dirs, normals)<0, -normals, normals) # Se determina hacia dónde apunta la normal
+                                                                        # tomando en cuenta el rayo de salida
+        albedo = dr.detach(self.get_albedo_detached(si)) # Medida de reflectancia difusa de la superficie en el punto de interacción
         return pts,dirs,normals,albedo
 
     def aov_names(self):
