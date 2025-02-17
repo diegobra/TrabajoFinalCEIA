@@ -1,5 +1,5 @@
 defaults:
-  - rendering: nerad
+  - rendering: nerad_emitters
   - residual_loss: l2_relative_prediction
   - validation: [image]
   - saving: [latest]

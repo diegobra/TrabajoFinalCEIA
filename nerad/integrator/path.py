@@ -172,6 +172,8 @@ class MyPathTracer(mi.SamplingIntegrator):
         em_hit_result = throughput * mis * ds.emitter.eval(si)
         return em_hit_result
 
+
+
     def sample_emitter(self, scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next):
         # Is emitter sampling even possible on the current vertex?
         active_em = active_next & mi.has_flag(
@@ -196,6 +198,63 @@ class MyPathTracer(mi.SamplingIntegrator):
         em_sample_result = throughput * mis_em * bsdf_value_em * em_weight
 
         return em_sample_result
+
+    import mitsuba as mi
+
+    def emitter_hit_custom(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si, emitter_position, emitter_normal, emitter_radius, emitter_radiance):
+        """
+        Calcula la contribución de un emisor circular en un punto de intersección si.
+
+        :param scene: Escena en la que se está trazando el rayo.
+        :param throughput: Factor de transporte acumulado en la trayectoria.
+        :param prev_si: Intersección anterior en la trayectoria del rayo.
+        :param prev_bsdf_pdf: Probabilidad de la dirección del rayo en la intersección anterior.
+        :param prev_bsdf_delta: Indica si la intersección anterior fue en una superficie especular.
+        :param si: Intersección actual donde se evalúa la iluminación del emisor.
+        :param emitter_position: Posición del emisor (mitsuba.Point3f).
+        :param emitter_normal: Normal de la superficie emisora (mitsuba.Normal3f).
+        :param emitter_radius: Radio del emisor (float).
+        :param emitter_radiance: Radiancia emitida por la fuente (mitsuba.Color3f).
+
+        :return: Contribución del emisor en el punto de intersección si.
+        """
+
+        # Vector desde la intersección hasta el centro del emisor
+        to_emitter = emitter_position - si.p
+        distance = mi.norm(to_emitter)
+
+        # Normalizar el vector dirección hacia el emisor
+        direction = to_emitter / distance
+
+        # Proyectar el punto en el plano del emisor para verificar si está dentro del radio
+        projected_distance = mi.dot(to_emitter, emitter_normal)  # Componente normal
+        projected_point = si.p + projected_distance * emitter_normal  # Proyección en el plano
+        in_radius = mi.norm(projected_point - emitter_position) <= emitter_radius  # Verificación radial
+
+        if not in_radius:
+            return mi.Color3f(0.0)  # Si está fuera del radio del emisor, no contribuye
+
+        # Cálculo del ángulo entre la normal del emisor y la dirección del punto
+        cos_theta = mi.dot(-direction, emitter_normal)
+        if cos_theta <= 0.0:
+            return mi.Color3f(0.0)  # Si la luz no apunta hacia afuera, no contribuye
+
+        # Crear una muestra de dirección similar a DirectionSample3f
+        ds = mi.DirectionSample3f()
+        ds.p = emitter_position  # Posición del emisor
+        ds.n = emitter_normal  # Normal del emisor
+        ds.d = direction  # Dirección hacia la intersección
+        ds.dist = distance  # Distancia desde el emisor hasta el punto de intersección
+
+        # Calcular peso de muestreo múltiple por importancia (MIS)
+        emitter_pdf = 1 / (mi.pi * emitter_radius**2)  # Aproximación de la densidad de probabilidad del emisor
+        mis = mis_weight(prev_bsdf_pdf, emitter_pdf)
+
+        # Evaluar la contribución del emisor
+        em_hit_result = throughput * mis * emitter_radiance * cos_theta / (distance**2)
+
+        return em_hit_result
+
 
     def to_string(self):
         return (

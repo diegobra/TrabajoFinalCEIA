@@ -1,5 +1,5 @@
 defaults:
-  - nerad_base
+  - nerad_emitters_base
   - pos_emb: hash_grid
   - dir_emb: identity
   - _self_
@@ -10,7 +10,7 @@ post_init:
     width: 512
     hidden: 4
     scene_properties_input: true
-    emitter_input: false
+    emitter_input: true
     position_embedding: ${rendering.pos_emb}
     direction_embedding: ${rendering.dir_emb}
     # automatically set

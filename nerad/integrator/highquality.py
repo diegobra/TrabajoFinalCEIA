@@ -111,7 +111,10 @@ class HighQuality(mi.SamplingIntegrator):
                         δL=None,
                         state_in=None,
                         reparam=None,
-                        active=mi.Bool(True)
+                        active=mi.Bool(True),
+                        emitter_pos = None,
+                        emitter_normal = None,
+                        emitter_radius = None
                     )
                 else:
                     L, valid, aov = self.integrator.sample(
@@ -119,7 +122,10 @@ class HighQuality(mi.SamplingIntegrator):
                         sampler,
                         ray,
                         None,
-                        active = mi.Bool(True))
+                        active = mi.Bool(True),
+                        emitter_pos = None,
+                        emitter_normal = None,
+                        emitter_radius = None)
 
                 # Only use the coalescing feature when rendering enough samples
                 #block.set_coalesce(block.coalesce() and spp >= 4)

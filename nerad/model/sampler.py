@@ -3,6 +3,8 @@ import mitsuba as mi
 
 import utils_diego as diego
 
+import numpy as np
+
 class ShapeSampler():
     def __init__(self, scene, no_specular_samples) -> None:
         self.valid_inds = self.compute_valid_sahpes(scene, no_specular_samples)
@@ -85,6 +87,30 @@ class ShapeSampler():
             to_ret = rays
 
         return to_ret, prob
+
+    def sample_random_emitter(self, scene, n):
+        """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
+
+        self.sampler.set_sample_count(1)
+        self.sampler.seed(1234, 1)
+
+        shapes = scene.shapes()
+
+        # Seleccionar una forma aleatoria de la escena
+        shape = np.random.choice(shapes)
+
+        # Samplear un punto aleatorio en la superficie
+        sample = shape.sample_position(0, self.sampler.next_2d())
+        position = sample.p
+        normal = sample.n
+
+        # Aproximar radio como la raíz cuadrada del área del shape dividido por PI
+        area = shape.surface_area()
+        #radius = np.sqrt(area / np.pi) if area > 0 else 0.0
+        radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
+
+        return position, normal, radius
+
 
     def compute_valid_sahpes(self, scene, no_specular_sample):
         i = 0

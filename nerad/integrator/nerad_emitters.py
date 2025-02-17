@@ -11,9 +11,12 @@ from nerad.texture.dictionary import MiDictionary
 
 from .path import MyPathTracer
 
+from .nerad import Nerad
 
-@register_integrator("nerad")
-class Nerad(MyPathTracer, nn.Module):
+import numpy as np
+
+@register_integrator("nerad_emitters")
+class NeradEmitters(Nerad, nn.Module):
     def __init__(self, props: mi.Properties):
         nn.Module.__init__(self)
         MyPathTracer.__init__(self, props)
@@ -23,6 +26,10 @@ class Nerad(MyPathTracer, nn.Module):
         self.network = None
         self.return_only_LHS = props.get("config").dict.get("return_only_LHS")
         self.m = props.get("config").dict.get("m")
+
+        self.emitter_pos_test = None
+        self.emitter_normal_test = None
+        self.emitter_radius_test = None
 
     def post_init(
         self,
@@ -48,7 +55,11 @@ class Nerad(MyPathTracer, nn.Module):
 
         self.residual_sampler_m.schedule_state()
         si, _ = self.residual_sampler.sample_input(scene=scene, n=n, seed=seed)
-        _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True, sampler_m = self.residual_sampler_m)
+
+        emitter_pos, emitter_normal, emitter_radius = self.residual_sampler.sample_random_emitter(scene, n)
+
+        _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
+                                emitter_pos, emitter_normal, emitter_radius, sampler_m = self.residual_sampler_m)
         residual = mi.Color3f(aov[-3:])
         return residual
 
@@ -59,9 +70,20 @@ class Nerad(MyPathTracer, nn.Module):
                                         # Recibe SurfaceInteraction cuando está entrenando y Ray3f cuando rederiza la imagen
                medium: mi.Medium,
                active: mi.Bool,
+               emitter_pos,
+               emitter_normal,
+               emitter_radius,
                **kwargs):
 
         m = 1
+
+        if emitter_pos is None:
+            if self.emitter_pos_test is None:
+                self.emitter_pos_test, self.emitter_normal_test, self.emitter_radius_test = self.get_emitter_test(scene)
+            emitter_pos = self.emitter_pos_test
+            emitter_normal = self.emitter_normal_test
+            emitter_radius = self.emitter_radius_test
+
         sampler_m = kwargs.get("sampler_m", None)
         if sampler_m is not None:
             m = self.m # 32
@@ -119,7 +141,7 @@ class Nerad(MyPathTracer, nn.Module):
         pts, dirs, normals, albedo = self.extract_inputs(si)
 
         # Se evalúa la radiosidad para cada interacción en la red neuronal
-        LHS = self.network.eval(pts, dirs, normals, albedo)
+        LHS = self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius)
 
         # Se calcula LHS para los rayos válidos
         LHS = dr.select(active & si.is_valid(), throughput*LHS, mi.Vector3f(0))
@@ -202,7 +224,7 @@ class Nerad(MyPathTracer, nn.Module):
             with torch.no_grad():
                 pts, dirs, normals, albedo = self.extract_inputs(si)
                 RHS_net = dr.select(active & si.is_valid(),
-                                    self.network.eval(pts, -ray.d, normals, albedo), mi.Vector3f(0))
+                                    self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius), mi.Vector3f(0))
 
         RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
 
@@ -263,3 +285,41 @@ class Nerad(MyPathTracer, nn.Module):
 
     def is_specular(self, si):
             return si.is_valid() & False
+
+    def get_emitter_test(self, scene):
+        """
+        Obtiene un emisor de forma aleatorio de la escena y devuelve su posición central,
+        normal y un radio que abarque su área.
+
+        Parámetros:
+            scene (mi.Scene): Escena de Mitsuba.
+
+        Retorna:
+            tuple: (posición (numpy array), normal (numpy array), radio (float))
+        """
+        # Obtener todos los emisores de la escena
+        emitters = [shape for shape in scene.shapes() if shape.is_emitter()]
+
+        if not emitters:
+            raise ValueError("No hay emisores en la escena.")
+
+        # Seleccionar un emisor aleatorio
+        emitter = np.random.choice(emitters)
+
+        # Obtener el bounding box del emisor
+        bbox = emitter.bbox()
+
+        # Calcular el centro del bounding box (posición representativa del emisor)
+        position = (bbox.min + bbox.max) / 2
+
+        # Evaluar un punto en la superficie del emisor para obtener la normal
+        sample = emitter.sample_position(0.5, [0.5, 0.5])  # Muestra un punto en el emisor
+        normal = sample.n  # Normal de la superficie en ese punto
+
+        # Calcular un radio que cubra la forma entera
+        radius = np.linalg.norm(bbox.extents()) / 2
+
+        position = mi.Point3f(position.x, position.y, position.z)
+        radius = mi.Float(radius)
+
+        return position, normal, radius
