@@ -27,6 +27,10 @@ class NeradEmitters(Nerad, nn.Module):
         self.return_only_LHS = props.get("config").dict.get("return_only_LHS")
         self.m = props.get("config").dict.get("m")
 
+        self.emitter_pos_train = None
+        self.emitter_normal_train = None
+        self.emitter_radius_train = None
+
         self.emitter_pos_test = None
         self.emitter_normal_test = None
         self.emitter_radius_test = None
@@ -56,10 +60,12 @@ class NeradEmitters(Nerad, nn.Module):
         self.residual_sampler_m.schedule_state()
         si, _ = self.residual_sampler.sample_input(scene=scene, n=n, seed=seed)
 
-        emitter_pos, emitter_normal, emitter_radius = self.residual_sampler.sample_random_emitter(scene, n)
+        #if self.emitter_pos_train is None:
+        #    self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, shape_emitter_train = self.residual_sampler.sample_random_emitter(scene, n)
+        #    print('shape_emitter.id() = ', shape_emitter_train.id())
 
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
-                                emitter_pos, emitter_normal, emitter_radius, sampler_m = self.residual_sampler_m)
+                                self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, sampler_m = self.residual_sampler_m)
         residual = mi.Color3f(aov[-3:])
         return residual
 
@@ -78,11 +84,18 @@ class NeradEmitters(Nerad, nn.Module):
         m = 1
 
         if emitter_pos is None:
-            if self.emitter_pos_test is None:
-                self.emitter_pos_test, self.emitter_normal_test, self.emitter_radius_test = self.get_emitter_test(scene)
-            emitter_pos = self.emitter_pos_test
-            emitter_normal = self.emitter_normal_test
-            emitter_radius = self.emitter_radius_test
+            # emitter_pos = mi.Point3f(-0.8171330094337463, 7.143604818793392e-08, 0.7157291769981384)
+            # emitter_normal = mi.Point3f(8.742279788975793e-08, 1.0, 3.821373047911778e-15)
+            # emitter_radius = mi.Float(3.)
+            emitter_pos = mi.Point3f(-0.005, 1.98, -0.03)
+            emitter_normal = mi.Point3f(0., -1. , 0.)
+            emitter_radius = mi.Float(0.40)
+
+            #if self.emitter_pos_test is None:
+            #    self.emitter_pos_test, self.emitter_normal_test, self.emitter_radius_test = self.get_emitter_test(scene)
+            #emitter_pos = self.emitter_pos_test
+            #emitter_normal = self.emitter_normal_test
+            #emitter_radius = self.emitter_radius_test
 
         sampler_m = kwargs.get("sampler_m", None)
         if sampler_m is not None:
@@ -148,21 +161,22 @@ class NeradEmitters(Nerad, nn.Module):
 
         # ---------------------- Direct emission ----------------------
 
-        E = self.emitter_hit(scene, throughput, prev_si,
-                             prev_bsdf_pdf, prev_bsdf_delta, si)
+        #E = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
+        E = self.get_emission(si, emitter_pos, emitter_normal, emitter_radius)
 
-        if self.return_only_LHS:
-            mask = valid_ray | (active & si.is_valid())
-            LHS = dr.select(mask, E + LHS, 0)
-            zero_vec = LHS*0
-            return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
+        #if self.return_only_LHS:
+        #    mask = valid_ray | (active & si.is_valid())
+        #    LHS = dr.select(mask, E + LHS, 0)
+        #    zero_vec = LHS*0
+        #    return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
 
 
         # ---------------------- repeat (if requested) ----------------------
         if m > 1:
-            indices = dr.arange(mi.UInt, 0, len(si.p[0]))
-            indices = dr.repeat(indices, self.m)
-            si = dr.gather(type(si), si, indices)
+            # Se preparan las variables para el sampleo de montecarlo de RHS
+            indices = dr.arange(mi.UInt, 0, len(si.p[0])) # [0, 1, 2, 3, 4, .. 32758 skipped .., 32763, 32764, 32765, 32766, 32767]
+            indices = dr.repeat(indices, self.m) # [0, ... (32 veces) ..., 0, 1, ..., 1, ... ... , 32767, ... , 32767] tamaño 32768*32
+            si = dr.gather(type(si), si, indices) # Interacciones para cada índice (tamaño 32768*32)
             prev_bsdf_delta = dr.gather(type(prev_bsdf_delta), prev_bsdf_delta, indices)
             prev_bsdf_pdf = dr.gather(type(prev_bsdf_pdf), prev_bsdf_pdf, indices)
             prev_si = dr.gather(type(si), prev_si, indices)
@@ -176,10 +190,14 @@ class NeradEmitters(Nerad, nn.Module):
 
         # ---------------------- Emitter sampling ----------------------
 
-        active_next = si.is_valid()
+        active_next = si.is_valid() # Tamaño 32768*32
 
-        em_sample_result = self.sample_emitter(
-            scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next)
+        #em_sample_result = self.sample_emitter(scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next)
+
+        #em_sample_result = self.emitter_hit_custom(scene, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17, 12, 4))
+        #em_sample_result = self.emitter_hit_area_light(scene, sampler, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17, 12, 4))
+        #em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17,12,4))
+        em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, si, bsdf, bsdf_ctx, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(20,20,20))
 
         # ------------------ Detached BSDF sampling -------------------
 
@@ -233,6 +251,11 @@ class NeradEmitters(Nerad, nn.Module):
             RHS = dr.block_sum(RHS, self.m)/self.m
             validity = dr.select(valid_ray, mi.Float(1), mi.Float(0))
             valid_ray = dr.block_sum(validity, self.m)>0
+
+
+        #aov = dr.select(valid_ray, E + LHS, 0)
+        #rgb = dr.select(valid_ray, E + RHS, 0)
+
 
 
         aov = dr.select(valid_ray, E + LHS, 0)

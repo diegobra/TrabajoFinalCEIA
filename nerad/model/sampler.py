@@ -109,7 +109,9 @@ class ShapeSampler():
         #radius = np.sqrt(area / np.pi) if area > 0 else 0.0
         radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
 
-        return position, normal, radius
+        radius = mi.Float(3.) # A modo de prueba se define el radio como 3
+
+        return position, normal, radius, shape
 
 
     def compute_valid_sahpes(self, scene, no_specular_sample):

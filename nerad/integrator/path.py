@@ -172,6 +172,71 @@ class MyPathTracer(mi.SamplingIntegrator):
         em_hit_result = throughput * mis * ds.emitter.eval(si)
         return em_hit_result
 
+    import mitsuba as mi
+
+    def get_emission(self, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
+        """
+        Retorna la radiancia (Le) para cada interacción en 'si',
+        asumiendo un emisor definido por un disco con centro 'pos_emisor',
+        normal 'normal_emisor', y radio 'radio_emisor'.
+
+        Si la interacción no pertenece al emisor, devuelve 0 (o un valor nulo)
+        en esa posición de la máscara.
+
+        Parámetros
+        ----------
+        si : SurfaceInteraction (vectorizado)
+            Contiene p (posiciones) y n (normales) de muchas interacciones.
+        pos_emisor : mi.Vector3f
+            Centro del disco emisor.
+        normal_emisor : mi.Vector3f
+            Normal del disco emisor (no necesariamente normalizada).
+        radio_emisor : float
+            Radio del disco emisor.
+        Le : float, mi.Color3f o similar
+            Radiancia emitida. Si es un color, puede ser mi.Color3f.
+        tolerancia : float
+            Umbral para la distancia al plano, etc.
+
+        Retorna
+        -------
+        radiancia : del mismo tipo que 'Le'
+            Valor de la radiancia para cada interacción.
+            Donde no pertenezca al emisor, se obtiene 0.
+        """
+
+        # p y n pueden ser 'arrays' de dimensión [N, 3] internamente.
+        p = si.p
+        n = si.n
+
+        # Normalizamos la normal del emisor
+        nor = emitter_normal / dr.norm(emitter_normal)
+
+        # Vector d desde el centro hasta cada punto p
+        d = p - emitter_pos
+
+        # Distancia (escalar) al plano según la normal
+        dist_plano = dr.dot(d, nor)
+
+        # 1. Máscara: verificar que el punto esté cerca del plano
+        belongs = dr.abs(dist_plano) < tolerance
+
+        # 2. Comprobar que la proyección en el plano caiga dentro del radio
+        d_plano = d - dist_plano * nor
+        belongs &= (dr.norm(d_plano) < emitter_radius)
+
+        # 3. Comprobar orientación de la normal de la superficie con la del emisor
+        dot_normales = dr.dot(n, nor)
+        # Si queremos descartar las normales que apunten en sentido opuesto, pedimos > 0
+        belongs &= (dot_normales > 0.0)
+
+        # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
+        #    Si Le es escalar, usamos 0.0. Si es un color (por ej. mi.Color3f),
+        #    podemos usar el constructor correspondiente o `dr.zeros(type(Le))`.
+        Le_cero = dr.zeros(type(emitter_radiance))  # Construye un "cero" del mismo tipo que Le
+        radiancia = dr.select(belongs, emitter_radiance, Le_cero)
+
+        return radiancia
 
 
     def sample_emitter(self, scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next):
@@ -201,7 +266,320 @@ class MyPathTracer(mi.SamplingIntegrator):
 
     import mitsuba as mi
 
-    def emitter_hit_custom(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si, emitter_position, emitter_normal, emitter_radius, emitter_radiance):
+
+    def emitter_hit_area_light_many_samples(
+        self,
+        scene,
+        sampler,
+        throughput,          # mi.Color3f (o array de Dr.Jit) con forma [..., 3]
+        prev_bsdf_pdf,       # PDF de la dirección saliente en la intersección anterior
+        si,                  # SurfaceInteraction actual
+        bsdf,                # BSDF en la intersección actual
+        bsdf_ctx,            # mi.BSDFContext, para la evaluación de la BSDF
+        emitter_position,    # mitsuba.Point3f
+        emitter_normal,      # mitsuba.Normal3f (normalizada)
+        emitter_radius,      # float (radio del disco emisor)
+        emitter_radiance     # mi.Color3f (radiancia del emisor)
+    ):
+        """
+        Genera num_samples muestras sobre un disco emisor, calcula la contribución
+        de luz directa con oclusión y la combina vía MIS con la PDF previa (prev_bsdf_pdf).
+        """
+        # ---------------------------
+        # 1) Generar muestras en el disco (en coordenadas polares)
+        # ---------------------------
+        uv = sampler.next_2d()  # shape = [num_samples, 2]
+        r   = emitter_radius * dr.sqrt(uv[0])
+        phi = 2 * dr.pi * uv[1]
+
+        x = r * dr.cos(phi)
+        y = r * dr.sin(phi)
+
+        # Vector local (x, y, 0) en el plano XY
+        local_point = mi.Vector3f(x, y, 0.0)  # shape = [num_samples, 3]
+
+        # Construir un marco local a partir de la normal del emisor
+        frame = mi.Frame3f(emitter_normal)  # Se transmite con broadcast
+
+        # Pasar el punto local a coordenadas de mundo
+        sampled_point = emitter_position + frame.to_world(local_point)
+        # shape = [num_samples, 3]
+
+        # ---------------------------
+        # 2) Construir rayos de sombra
+        # ---------------------------
+        to_emitter  = sampled_point - si.p  # [num_samples, 3]
+        dist_sq     = dr.sum(to_emitter * to_emitter)  # [num_samples]
+        valid_mask  = dist_sq > 0.0
+        dist        = dr.sqrt(dist_sq)
+        dir_to_emitter = to_emitter * dr.rcp(dist)  # normalizar
+
+        shadow_ray = mi.Ray3f(
+            o           = si.p + dir_to_emitter*0.01, # Se suma este epsilon en dirección hacia el emisor para evitar casos en que intersecta la propia superficie
+            d           = dir_to_emitter,
+            time        = si.time,
+            wavelengths = si.wavelengths
+        )
+
+        # ---------------------------
+        # 3) Consultar visibilidad
+        # ---------------------------
+        shadow_hit    = scene.ray_intersect(shadow_ray)
+        blocked_mask  = (shadow_hit.t < (dist - 0.1))  # si hay colisión antes, está ocluido
+
+        # ---------------------------
+        # 4) Cálculo de la contribución directa
+        # ---------------------------
+
+        # 4.1) Factor geométrico "lado emisor"
+        # cos_emitter = n_light . (-dir_to_emitter), con la normal apuntando "hacia afuera"
+        cos_emitter = dr.dot(emitter_normal, -dir_to_emitter)
+
+        # Área del disco
+        disk_area = dr.pi * (emitter_radius**2)
+
+        # PDF de muestrear un punto en área -> PDF en sólido:
+        # p_w = pA * (dist^2 / cos_emitter)   (si cos_emitter > 0)
+        # donde pA = 1 / disk_area
+        emitter_pdf_solid_angle = (dist_sq * (1.0 / disk_area)) * dr.rcp(dr.maximum(cos_emitter, 1e-8))
+
+        # 4.2) Peso MIS (balance heuristic)
+        #   w = prev_bsdf_pdf / (prev_bsdf_pdf + emitter_pdf_solid_angle)
+        w_mis = mis_weight(prev_bsdf_pdf, emitter_pdf_solid_angle)
+
+        # 4.3) Evaluar la BSDF en la superficie receptora:
+        #      "wo" = dirección saliente = la que apunta hacia la luz
+        wo = si.to_local(dir_to_emitter)
+        bsdf_val, bsdf_pdf = bsdf.eval_pdf(bsdf_ctx, si, wo, active=valid_mask)
+
+        # 4.4) Factor de atenuación geométrica y energía
+        inv_dist_sq = dr.rcp(dist_sq)
+
+        # Contribución final de cada sample:
+        # throughput * [BSDF] * [radiancia_luz] * [MIS] * [cos_emitter / dist^2]
+        contrib = throughput * bsdf_val * emitter_radiance * w_mis * cos_emitter * inv_dist_sq
+
+        # ---------------------------
+        # 5) Máscara final
+        # ---------------------------
+        final_mask = valid_mask & (cos_emitter > 0.0) & ~blocked_mask
+        contrib = dr.select(final_mask, contrib, mi.Color3f(0.0))
+
+        # ---------------------------
+        # 6) Combinar muestras
+        # ---------------------------
+        # Promedio final (si quieres un único valor por píxel)
+        #c_mean = dr.sum(contrib) * (1.0 / float(len(contrib[0])))
+
+        return contrib
+
+    def emitter_hit_area_light_many_samples_old(
+        self,
+        scene,
+        sampler,
+        throughput,          # mi.Color3f (o array Dr.Jit con forma [.., 3])
+        prev_bsdf_pdf,       # float, PDF en la intersección anterior
+        si,                  # Un SurfaceInteraction (posiblemente vectorizado)
+        emitter_position,    # mitsuba.Point3f
+        emitter_normal,      # mitsuba.Normal3f (normalizado)
+        emitter_radius,      # float
+        emitter_radiance    # mi.Color3f
+    ):
+
+        # ---------------------------
+        # 1) Generar muestras en el disco
+        # ---------------------------
+        # Tomamos num_samples pares (u, v)
+        uv = sampler.next_2d()          # shape = [num_samples, 2]
+        r   = emitter_radius * dr.sqrt(uv[0])   # [num_samples]
+        phi = 2 * dr.pi * uv[1]                # [num_samples]
+
+        x = r * dr.cos(phi)
+        y = r * dr.sin(phi)
+
+        # Creamos un vector local (x, y, 0) en el plano XY
+        local_point = mi.Vector3f(x, y, 0.0)       # shape = [num_samples, 3]
+
+        # Construir un marco local a partir de la normal del emisor
+        frame = mi.Frame3f(emitter_normal)         # solo uno (broadcast)
+
+        # Pasar el punto local a coordenadas de mundo
+        sampled_point = emitter_position + frame.to_world(local_point)
+        # shape = [num_samples, 3]
+
+        # ---------------------------
+        # 2) Armar rayos de sombra
+        # ---------------------------
+        to_emitter = sampled_point - si.p  # shape = [num_samples, 3] (broadcast si.p si es escalar)
+        dist_sq    = dr.sum(to_emitter * to_emitter)  # shape = [num_samples]
+
+        # Evitar división por cero si la distancia es 0
+        valid_mask = dist_sq > 0.0
+        dist       = dr.sqrt(dist_sq)
+        dir_to_emitter = to_emitter * dr.rcp(dist)  # normalizar
+
+        # Construimos un array de Ray3f para todos los samples
+        # (cada campo se "empaqueta" con la misma forma)
+        shadow_ray = mi.Ray3f(
+            o           = si.p,  # [num_samples, 3]
+            d           = dir_to_emitter,                   # [num_samples, 3]
+            time        = si.time,
+            wavelengths = si.wavelengths
+        )
+
+        # ---------------------------
+        # 3) Consultar visibilidad
+        # ---------------------------
+        shadow_hit = scene.ray_intersect(shadow_ray)
+        blocked_mask = (shadow_hit.t < dist)  # si hay colisión antes de "dist", está bloqueado
+
+        # ---------------------------
+        # 4) Calcular contribución
+        # ---------------------------
+        # cos_emitter = dot(normal_emisor, -dir_to_emitter)
+        cos_emitter = dr.dot(emitter_normal, -dir_to_emitter)
+
+        # PDF de muestrear un punto sobre el área del disco
+        disk_area   = dr.pi * (emitter_radius**2)
+        emitter_pdf = 1.0 / disk_area
+
+        # Peso MIS: combina pdf de BSDF y pdf del emisor
+        # (ejemplo de "balance heuristic": mis_weight = prev_bsdf_pdf / (prev_bsdf_pdf + emitter_pdf))
+        mis_weight_val = mis_weight(prev_bsdf_pdf, emitter_pdf)
+
+        # Contribución geométrica: cos / dist^2
+        inv_dist_sq = dr.rcp(dist_sq)
+        contrib = throughput * emitter_radiance * (cos_emitter * mis_weight_val) * inv_dist_sq
+        # shape = [num_samples, 3]
+
+        # Anular contribución si no es válido, si está bloqueado, o si cos <= 0
+        final_mask = valid_mask & (cos_emitter > 0) & ~blocked_mask
+        contrib = dr.select(final_mask, contrib, mi.Color3f(0.0))
+
+        # ---------------------------
+        # 5) Combinar (promediar) las muestras
+        # ---------------------------
+        # c_mean = dr.mean(contrib, axis=0)  # ->  un mi.Color3f final
+
+        # Si deseas la media
+        #c_mean = dr.sum(contrib, axis=0) * (1.0 / float(num_samples))
+
+        return contrib
+
+
+    def sample_point_on_disk(self, sampler, emitter_position, emitter_normal, emitter_radius):
+        """
+        Devuelve (sampled_point, sampled_normal, pdf)
+        - sampled_point : mitsuba.Point3f
+        - sampled_normal: mitsuba.Normal3f (igual a emitter_normal, normal unitaria del disco)
+        - pdf           : densidad de prob. de muestrear ese punto (1 / área del disco)
+        """
+
+        # 1) Crear un marco local a partir de la normal del emisor
+        frame = mi.Frame3f(emitter_normal)
+
+        # 2) Tomar muestra aleatoria
+        uv = sampler.next_2d()  # (u, v) en [0,1)
+        r = emitter_radius * dr.sqrt(uv[0])
+        phi = 2 * dr.pi * uv[1]
+
+        # 3) Obtener coordenadas locales (x, y) y elevación z=0 en el marco local
+        x = r * dr.cos(phi)
+        y = r * dr.sin(phi)
+        local_point = mi.Vector3f(x, y, 0.0)
+
+        # 4) Llevar a coordenadas de mundo
+        world_point = emitter_position + frame.to_world(local_point)
+
+        # 5) La normal del disco (ya normalizada)
+        sampled_normal = emitter_normal
+
+        # 6) PDF uniforme en el área del disco: 1 / (π * R^2)
+        disk_area = dr.pi * (emitter_radius**2)
+        pdf = 1.0 / disk_area
+
+        return world_point, sampled_normal, pdf
+
+
+    def emitter_hit_area_light(
+        self,
+        scene,                   # La escena Mitsuba
+        sampler,                 # Sampler para generar números aleatorios
+        throughput,              # Factor de transporte acumulado
+        prev_bsdf_pdf,           # PDF de la dirección en la intersección anterior
+        si,                      # Intersección actual (mitsuba.SurfaceInteraction3f)
+        emitter_position,        # Centro del disco emisor (mitsuba.Point3f)
+        emitter_normal,          # Normal del disco emisor (mitsuba.Normal3f)
+        emitter_radius,          # Radio del disco
+        emitter_radiance         # Radiancia del emisor (mitsuba.Color3f)
+    ):
+
+        # 1) Muestrear un punto en el disco
+        sampled_point, sampled_normal, emitter_pdf = self.sample_point_on_disk(
+            sampler,
+            emitter_position,
+            emitter_normal,
+            emitter_radius
+        )
+
+        # Vector desde el punto de intersección hasta el punto del disco
+        to_emitter = sampled_point - si.p
+
+        # Distancia y dirección normalizada
+        dist_sq = dr.dot(to_emitter, to_emitter)
+        if dist_sq == 0.0:
+            return mi.Color3f(0.0)
+
+        dist = dr.sqrt(dist_sq)
+        dir_to_emitter = to_emitter / dist
+
+        # 2) Rayo de sombra
+        shadow_ray = mi.Ray3f(si.p, dir_to_emitter, si.time, si.wavelengths)
+        shadow_hit = scene.ray_intersect(shadow_ray)
+
+        # Si golpeamos algo antes de llegar al punto muestreado en el disco, está bloqueado
+        if shadow_hit.is_valid() and (shadow_hit.t < dist):
+            return mi.Color3f(0.0)
+
+        # 3) Factor geométrico:
+        #    cos emisor = dot(normal_disque, -dir_to_emitter)
+        #    cos receptor = dot(si.n,  dir_to_emitter)  (si necesitas NdotL en el receptor, depende de la BSDF)
+        cos_emitter = dr.dot(sampled_normal, -dir_to_emitter)
+        if cos_emitter <= 0.0:
+            return mi.Color3f(0.0)
+
+        # 4) Construir la "direction sample" (opcional, si quieres consistencia con Mitsuba)
+        ds = mi.DirectionSample3f()
+        ds.p = sampled_point
+        ds.n = sampled_normal
+        ds.d = dir_to_emitter
+        ds.dist = dist
+        # ds.pdf = emitter_pdf  # (opcional)
+
+        # 5) Calcular peso de Multiple Importance Sampling
+        #    - prev_bsdf_pdf: PDF de la dirección elegida en la intersección anterior
+        #    - emitter_pdf: PDF de muestrear ESTE punto en el disco
+        mis = mis_weight(prev_bsdf_pdf, emitter_pdf)  # Definir tu función mis_weight
+
+        # 6) Contribución final
+        #    Formula típica:
+        #    radiancia * cos_emitter / dist^2 * (1 / emitter_pdf)
+        #    (además multiplicado por throughput, mis, etc.)
+        #    Dependiendo de tu BSDF, también podrías necesitar cos_receptor u otros factores.
+        contribution = (
+            throughput *
+            emitter_radiance *
+            cos_emitter / dist_sq *
+            mis
+        )
+
+        # (Si la BSDF en el receptor requiere factor cos(si.n, dir),
+        #  podrías multiplicarlo también: cos_receptor = dr.dot(si.n, dir_to_emitter).)
+
+        return contribution
+
+
+    def emitter_hit_custom(self, scene, throughput, prev_bsdf_pdf, si, emitter_position, emitter_normal, emitter_radius, emitter_radiance):
         """
         Calcula la contribución de un emisor circular en un punto de intersección si.
 
@@ -221,18 +599,30 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         # Vector desde la intersección hasta el centro del emisor
         to_emitter = emitter_position - si.p
-        distance = mi.norm(to_emitter)
+
+        # Cálculo de la distancia sin usar .norm()
+        distance_sq = to_emitter.dot_(to_emitter)
+        if distance_sq <= 0.0:
+            return False
+
+        distance = dr.sqrt(distance_sq)
 
         # Normalizar el vector dirección hacia el emisor
         direction = to_emitter / distance
 
-        # Proyectar el punto en el plano del emisor para verificar si está dentro del radio
-        projected_distance = mi.dot(to_emitter, emitter_normal)  # Componente normal
-        projected_point = si.p + projected_distance * emitter_normal  # Proyección en el plano
-        in_radius = mi.norm(projected_point - emitter_position) <= emitter_radius  # Verificación radial
+        shadow_ray = mi.Ray3f(si.p, direction, si.time, si.wavelengths)
+        shadow_hit = scene.ray_intersect(shadow_ray)
 
-        if not in_radius:
-            return mi.Color3f(0.0)  # Si está fuera del radio del emisor, no contribuye
+        if shadow_hit.t < distance:
+            return mi.Color3f(0.0)  # Hay un objeto antes del emisor, no contribuye
+
+        # Proyectar el punto en el plano del emisor para verificar si está dentro del radio
+        #projected_distance = mi.dot(to_emitter, emitter_normal)  # Componente normal
+        #projected_point = si.p + projected_distance * emitter_normal  # Proyección en el plano
+        #in_radius = mi.norm(projected_point - emitter_position) <= emitter_radius  # Verificación radial
+
+        #if not in_radius:
+        #    return mi.Color3f(0.0)  # Si está fuera del radio del emisor, no contribuye
 
         # Cálculo del ángulo entre la normal del emisor y la dirección del punto
         cos_theta = mi.dot(-direction, emitter_normal)
