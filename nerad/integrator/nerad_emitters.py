@@ -52,7 +52,7 @@ class NeradEmitters(Nerad, nn.Module):
 
     def compute_residual(self, scene, n, seed):
         if self.residual_sampler is None:
-            self.residual_sampler = ShapeSampler(scene, no_specular_samples=True)
+            self.residual_sampler = ShapeSampler(scene, no_specular_samples=True, avoid_emitters=True)
             assert self.m != 0
             self.residual_sampler_m = self.residual_sampler.sampler.clone()
             self.residual_sampler_m.seed(seed,n*self.m)
@@ -97,11 +97,11 @@ class NeradEmitters(Nerad, nn.Module):
 
         m = 1
 
-        if emitter_pos is None:
-            # Luz techo centro
-            emitter_pos = mi.Point3f(0, 1.98, -0.03)
-            emitter_normal = mi.Point3f(0., -1. , 0.)
-            emitter_radius = mi.Float(0.40)
+        # if emitter_pos is None:
+        #     # Luz techo centro
+        #     emitter_pos = mi.Point3f(0, 1.98, -0.03)
+        #     emitter_normal = mi.Point3f(0., -1. , 0.)
+        #     emitter_radius = mi.Float(0.40)
             # # Luz techo izquierda
             # emitter_pos = mi.Point3f(-0.50, 1.98, -0.03)
             # emitter_normal = mi.Point3f(0., -1. , 0.)

@@ -6,8 +6,8 @@ import utils_diego as diego
 import numpy as np
 
 class ShapeSampler():
-    def __init__(self, scene, no_specular_samples) -> None:
-        self.valid_inds = self.compute_valid_sahpes(scene, no_specular_samples)
+    def __init__(self, scene, no_specular_samples, avoid_emitters=False) -> None:
+        self.valid_inds = self.compute_valid_sahpes(scene, no_specular_samples, avoid_emitters)
         self.sampler = mi.load_dict({'type': 'independent'})
         self.PCG = None
 
@@ -97,7 +97,12 @@ class ShapeSampler():
         shapes = scene.shapes()
 
         # Seleccionar una forma aleatoria de la escena
-        shape = np.random.choice(shapes)
+        while True:
+            shape = np.random.choice(shapes)
+            # Se chequea que no sea emisor, ya que los mismos se asumen que pertenecen a las superficies existentes.
+            # Si no se hiciera este control, los emisores de la escena particular tendrían mayor probabilidad de ser sampleados, overfitteando para estos casos
+            if not shape.is_emitter():
+                break
 
         # Samplear un punto aleatorio en la superficie
         sample = shape.sample_position(0, self.sampler.next_2d())
@@ -114,13 +119,13 @@ class ShapeSampler():
         return position, normal, radius, shape
 
 
-    def compute_valid_sahpes(self, scene, no_specular_sample):
+    def compute_valid_sahpes(self, scene, no_specular_sample, avoid_emitters=False):
         i = 0
         valid_inds, invalid_inds = [], []
         for sh in scene.shapes():
             try:
                 sh.surface_area()
-                if not (no_specular_sample & mi.has_flag(sh.bsdf().flags(), mi.BSDFFlags.Delta)):
+                if not (no_specular_sample & mi.has_flag(sh.bsdf().flags(), mi.BSDFFlags.Delta)) and (avoid_emitters == False or not sh.is_emitter()) :
                     valid_inds.append(i)
             except:
                 invalid_inds.append(i)
