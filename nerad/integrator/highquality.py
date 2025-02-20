@@ -79,6 +79,11 @@ class HighQuality(mi.SamplingIntegrator):
         if isinstance(sensor, int):
             sensor= scene.sensors()[sensor]
 
+        # Se obtienen los emisores circulares
+        circular_emitters = self.get_circular_emitters(scene)
+
+        emitter_pos, emitter_normal, emitter_radius = circular_emitters[0]
+
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)
         sensor.film().prepare(self.integrator.aov_names())
@@ -112,9 +117,9 @@ class HighQuality(mi.SamplingIntegrator):
                         state_in=None,
                         reparam=None,
                         active=mi.Bool(True),
-                        emitter_pos = None,
-                        emitter_normal = None,
-                        emitter_radius = None
+                        emitter_pos = emitter_pos,
+                        emitter_normal = emitter_normal,
+                        emitter_radius = emitter_radius
                     )
                 else:
                     L, valid, aov = self.integrator.sample(
@@ -123,9 +128,9 @@ class HighQuality(mi.SamplingIntegrator):
                         ray,
                         None,
                         active = mi.Bool(True),
-                        emitter_pos = None,
-                        emitter_normal = None,
-                        emitter_radius = None)
+                        emitter_pos = emitter_pos,
+                        emitter_normal = emitter_normal,
+                        emitter_radius = emitter_radius)
 
                 # Only use the coalescing feature when rendering enough samples
                 #block.set_coalesce(block.coalesce() and spp >= 4)
@@ -244,3 +249,30 @@ class HighQuality(mi.SamplingIntegrator):
 
             "]"
         )
+
+    def get_circular_emitters(self, scene):
+        """
+        Extrae todos los emisores de la escena que sean de tipo área y devuelve su
+        posición, normal y radio estimado a partir del área del emisor.
+        """
+        emitters = []
+
+        for shape in scene.shapes():
+            if shape.is_emitter():  # Verificar si la forma tiene un emisor
+                emitter = shape.emitter()
+
+                # Obtener el centroide de la forma en espacio de mundo
+                position = shape.bbox().center()
+
+                sampled_position = shape.sample_position(0, (0,0))
+
+                # Extraer la normal aproximada a partir de la geometría
+                normal = sampled_position.n
+
+                # Estimar el radio del emisor a partir del área
+                area = shape.surface_area()
+                radius = dr.sqrt(area / dr.pi)  # Radio estimado suponiendo un disco equivalente
+
+                emitters.append((mi.Point3f(position), normal, radius))
+
+        return emitters

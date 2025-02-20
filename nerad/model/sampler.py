@@ -88,11 +88,11 @@ class ShapeSampler():
 
         return to_ret, prob
 
-    def sample_random_emitter(self, scene, n):
+    def sample_random_emitter(self, scene, seed):
         """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
 
         self.sampler.set_sample_count(1)
-        self.sampler.seed(1234, 1)
+        self.sampler.seed(seed, 1) # Importante no utilizar la misma semilla en cada iteración
 
         shapes = scene.shapes()
 
@@ -109,7 +109,7 @@ class ShapeSampler():
         #radius = np.sqrt(area / np.pi) if area > 0 else 0.0
         radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
 
-        radius = mi.Float(3.) # A modo de prueba se define el radio como 3
+        radius = mi.Float(0.2) # A modo de prueba se define el radio manualmente
 
         return position, normal, radius, shape
 
