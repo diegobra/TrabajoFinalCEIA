@@ -83,6 +83,9 @@ class HighQuality(mi.SamplingIntegrator):
         circular_emitters = self.get_circular_emitters(scene)
 
         emitter_pos, emitter_normal, emitter_radius = circular_emitters[0]
+        # emitter_pos = None
+        # emitter_normal = None
+        # emitter_radius = None
 
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)
