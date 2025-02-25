@@ -88,13 +88,13 @@ class HighQuality(mi.SamplingIntegrator):
             # Luz izquierda
             emitter_pos = mi.Point3f(-1., 1., -0.2)
             emitter_normal = mi.Point3f(1., 0. , 0.)
-            emitter_radius = mi.Float(0.30)
+            emitter_radius = mi.Float(0.10)
             emitter_radiance = mi.Color3f(17.,12.,4.)
 
             # # Luz derecha
             # emitter_pos = mi.Point3f(1., 1., -0.2)
             # emitter_normal = mi.Point3f(-1., 0. , 0.)
-            # emitter_radius = mi.Float(0.30)
+            # emitter_radius = mi.Float(0.10)
             # emitter_radiance = mi.Color3f(17.,12.,4.)
 
         #Prepare the spiral

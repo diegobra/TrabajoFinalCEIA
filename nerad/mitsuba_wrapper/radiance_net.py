@@ -51,6 +51,7 @@ class RadianceMLP(nn.Module):
         hidden: int,
         position_embedding: dict[str, Any],
         direction_embedding: dict[str, Any],
+        emitter_position_embedding: dict[str, Any],
         scene_properties_input: bool,
         emitter_input: bool
     ):
@@ -58,6 +59,7 @@ class RadianceMLP(nn.Module):
         self.scene_properties_input = scene_properties_input
         self.pos_emb = create_embedding(position_embedding)
         self.dir_emb = create_embedding(direction_embedding)
+        self.emitter_pos_emb = create_embedding(emitter_position_embedding)
         self.emitter_input = emitter_input
 
         def embed_size(in_vector, embedding):
@@ -71,7 +73,8 @@ class RadianceMLP(nn.Module):
             in_size += 3                                #albedo
 
         if emitter_input:
-            in_size += embed_size(3, self.pos_emb) + 3 + 1 # posición, normal y radio del emisor generado
+            #in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 # posición, normal y radio del emisor generado
+            in_size += 3 + 3 + 1 # posición, normal y radio del emisor generado
 
         hidden_layers = []
         for _ in range(hidden):
@@ -109,7 +112,8 @@ class RadianceMLP(nn.Module):
             net_in = torch.cat(
                 [
                     net_in,                             # torch.Size([32768, 108])
-                    embed(emitter_pos, self.pos_emb),   # torch.Size([32768, 99])
+                    #embed(emitter_pos, self.emitter_pos_emb),   # torch.Size([32768, 99])
+                    emitter_pos,   # torch.Size([32768, 99])
                     emitter_normal,                     # torch.Size([32768, 3])
                     emitter_radius],                    # torch.Size([32768, 1])
                 dim=-1,
@@ -135,13 +139,14 @@ class MitsubaRadianceNetworkWrapper(MitsubaWrapper):
         hidden: int,
         position_embedding: dict[str, Any],
         direction_embedding: dict[str, Any],
+        emitter_position_embedding: dict[str, Any],
         scene_min: Any,
         scene_max: Any,
         scene_properties_input,
         emitter_input
     ):
         super().__init__(scene_min, scene_max, "radiance_net")
-        self.network = RadianceMLP(width, hidden, position_embedding, direction_embedding, scene_properties_input, emitter_input)
+        self.network = RadianceMLP(width, hidden, position_embedding, direction_embedding, emitter_position_embedding, scene_properties_input, emitter_input)
 
     def _eval(self, pts, dirs, norms, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None):
         p_tensor = vec_to_tens_safe(pts + self.grad_activator) # TensorXf(shape=(32768, 3))

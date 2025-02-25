@@ -334,7 +334,7 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         # 4.1) Factor geométrico "lado emisor"
         # cos_emitter = n_light . (-dir_to_emitter), con la normal apuntando "hacia afuera"
-        cos_emitter = dr.dot(emitter_normal, -dir_to_emitter)
+        #cos_emitter = dr.dot(emitter_normal, -dir_to_emitter)
 
         # Área del disco
         disk_area = dr.pi * (emitter_radius**2)
@@ -342,7 +342,11 @@ class MyPathTracer(mi.SamplingIntegrator):
         # PDF de muestrear un punto en área -> PDF en sólido:
         # p_w = pA * (dist^2 / cos_emitter)   (si cos_emitter > 0)
         # donde pA = 1 / disk_area
-        emitter_pdf_solid_angle = (dist_sq * (1.0 / disk_area)) * dr.rcp(dr.maximum(cos_emitter, 1e-8))
+        #emitter_pdf_solid_angle = (dist_sq * (1.0 / disk_area)) * dr.rcp(dr.maximum(cos_emitter, 1e-8))
+
+        cos_emitter = dr.maximum(dr.dot(emitter_normal, -dir_to_emitter), 0.0)
+        emitter_pdf_solid_angle = (dist_sq / disk_area) * dr.rcp(cos_emitter + 1e-4)
+
 
         # 4.2) Peso MIS (balance heuristic)
         #   w = prev_bsdf_pdf / (prev_bsdf_pdf + emitter_pdf_solid_angle)
@@ -358,7 +362,9 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         # Contribución final de cada sample:
         # throughput * [BSDF] * [radiancia_luz] * [MIS] * [cos_emitter / dist^2]
-        contrib = throughput * bsdf_val * emitter_radiance * w_mis * cos_emitter * inv_dist_sq
+        #contrib = throughput * bsdf_val * emitter_radiance * w_mis * cos_emitter * inv_dist_sq
+        contrib = throughput * bsdf_val * emitter_radiance * cos_emitter * inv_dist_sq
+
 
         # ---------------------------
         # 5) Máscara final

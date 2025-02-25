@@ -57,25 +57,31 @@ class NeradEmitters(Nerad, nn.Module):
         self.residual_sampler_m.schedule_state()
         si, _ = self.residual_sampler.sample_input(scene=scene, n=n, seed=seed)
 
-        #self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, shape_emitter_train = self.residual_sampler.sample_random_emitter(scene, seed)
+        self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train, shape_emitter_train = self.residual_sampler.sample_random_emitter(scene, seed)
         # print('self.emitter_pos_train = ', self.emitter_pos_train)
         # print('self.emitter_normal_train = ', self.emitter_normal_train)
         # print('self.emitter_radius_train = ', self.emitter_radius_train)
         # print('shape_emitter.id() = ', shape_emitter_train.id())
         # print('------------------------')
 
-        if seed % 2 == 0:
-            # Luz izquierda
-            self.emitter_pos_train = mi.Point3f(-1., 1., -0.2)
-            self.emitter_normal_train = mi.Point3f(1., 0. , 0.)
-            self.emitter_radius_train = mi.Float(0.30)
-            self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
-        else:
-            # Luz derecha
-            self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
-            self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
-            self.emitter_radius_train = mi.Float(0.30)
-            self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
+        # # Luz izquierda
+        # self.emitter_pos_train = mi.Point3f(-1., 1., -0.2)
+        # self.emitter_normal_train = mi.Point3f(1., 0. , 0.)
+        # self.emitter_radius_train = mi.Float(0.10)
+        # self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
+
+        # if seed % 2 == 0:
+        #     # Luz izquierda
+        #     self.emitter_pos_train = mi.Point3f(-1., 1., -0.2)
+        #     self.emitter_normal_train = mi.Point3f(1., 0. , 0.)
+        #     self.emitter_radius_train = mi.Float(0.10)
+        #     self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
+        # else:
+        #     # Luz derecha
+        #     self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
+        #     self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
+        #     self.emitter_radius_train = mi.Float(0.10)
+        #     self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
 
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
                                 self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train,
@@ -256,8 +262,9 @@ class NeradEmitters(Nerad, nn.Module):
                 RHS_net = dr.select(active & si.is_valid(),
                                     self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius), mi.Vector3f(0))
 
-        RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
+        #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
         #RHS = RHS_net * throughput + em_sample_result
+        RHS = RHS_net * throughput + em_sample_result + bsdf_sample_result * prev_bsdf_pdf * throughput
 
         # ---------------------- Deal with repeat (if any) ----------------------
         if m > 1:

@@ -13,6 +13,7 @@ post_init:
     emitter_input: false
     position_embedding: ${rendering.pos_emb}
     direction_embedding: ${rendering.dir_emb}
+    emitter_position_embedding: ${rendering.pos_emb}
     # automatically set
     scene_min:
     scene_max:
