@@ -229,7 +229,7 @@ class MyPathTracer(mi.SamplingIntegrator):
         # 3. Comprobar orientación de la normal de la superficie con la del emisor
         dot_normales = dr.dot(n, nor)
         # Si queremos descartar las normales que apunten en sentido opuesto, pedimos > 0
-        belongs &= (dot_normales > 0.0)
+        #belongs &= (dot_normales > 0.0) # SE COMENTÓ ESTO EL 15/04/25, porque las superficies no necesariamente tenían la misma normal que los emisores
 
         # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
         #    Si Le es escalar, usamos 0.0. Si es un color (por ej. mi.Color3f),

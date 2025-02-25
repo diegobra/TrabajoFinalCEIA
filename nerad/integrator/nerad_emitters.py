@@ -69,13 +69,13 @@ class NeradEmitters(Nerad, nn.Module):
             self.emitter_pos_train = mi.Point3f(-1., 1., -0.2)
             self.emitter_normal_train = mi.Point3f(1., 0. , 0.)
             self.emitter_radius_train = mi.Float(0.30)
-            self.emitter_radiance_train = mi.Color3f(5.,5.,5.)
+            self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
         else:
             # Luz derecha
             self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
             self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
             self.emitter_radius_train = mi.Float(0.30)
-            self.emitter_radiance_train = mi.Color3f(5.,5.,5.)
+            self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
 
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
                                 self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train,
@@ -247,6 +247,7 @@ class NeradEmitters(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #bsdf_sample_result = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
+        bsdf_sample_result = self.get_emission(dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         # ---------------------- Eval RHS ----------------------
         with dr.suspend_grad():
@@ -255,8 +256,8 @@ class NeradEmitters(Nerad, nn.Module):
                 RHS_net = dr.select(active & si.is_valid(),
                                     self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius), mi.Vector3f(0))
 
-        #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
-        RHS = RHS_net * throughput + em_sample_result
+        RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
+        #RHS = RHS_net * throughput + em_sample_result
 
         # ---------------------- Deal with repeat (if any) ----------------------
         if m > 1:

@@ -82,10 +82,20 @@ class HighQuality(mi.SamplingIntegrator):
         # Se obtienen los emisores circulares
         circular_emitters = self.get_circular_emitters(scene)
 
-        emitter_pos, emitter_normal, emitter_radius, emitter_radiance = circular_emitters[0]
-        # emitter_pos = None
-        # emitter_normal = None
-        # emitter_radius = None
+        if len(circular_emitters) > 0:
+            emitter_pos, emitter_normal, emitter_radius, emitter_radiance = circular_emitters[0]
+        else:
+            # Luz izquierda
+            emitter_pos = mi.Point3f(-1., 1., -0.2)
+            emitter_normal = mi.Point3f(1., 0. , 0.)
+            emitter_radius = mi.Float(0.30)
+            emitter_radiance = mi.Color3f(17.,12.,4.)
+
+            # # Luz derecha
+            # emitter_pos = mi.Point3f(1., 1., -0.2)
+            # emitter_normal = mi.Point3f(-1., 0. , 0.)
+            # emitter_radius = mi.Float(0.30)
+            # emitter_radiance = mi.Color3f(17.,12.,4.)
 
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)
@@ -278,7 +288,7 @@ class HighQuality(mi.SamplingIntegrator):
                 area = shape.surface_area()
                 radius = dr.sqrt(area / dr.pi)  # Radio estimado suponiendo un disco equivalente
 
-                radiance = mi.Color3f(5., 5., 5.)
+                radiance = mi.Color3f(17., 12., 4.)
 
                 emitters.append((mi.Point3f(position), normal, radius, radiance))
 
