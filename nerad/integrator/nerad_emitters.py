@@ -30,10 +30,7 @@ class NeradEmitters(Nerad, nn.Module):
         self.emitter_pos_train = None
         self.emitter_normal_train = None
         self.emitter_radius_train = None
-
-        self.emitter_pos_test = None
-        self.emitter_normal_test = None
-        self.emitter_radius_test = None
+        self.emitter_radiance_train = None
 
     def post_init(
         self,
@@ -60,26 +57,29 @@ class NeradEmitters(Nerad, nn.Module):
         self.residual_sampler_m.schedule_state()
         si, _ = self.residual_sampler.sample_input(scene=scene, n=n, seed=seed)
 
-        self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, shape_emitter_train = self.residual_sampler.sample_random_emitter(scene, seed)
+        #self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, shape_emitter_train = self.residual_sampler.sample_random_emitter(scene, seed)
         # print('self.emitter_pos_train = ', self.emitter_pos_train)
         # print('self.emitter_normal_train = ', self.emitter_normal_train)
         # print('self.emitter_radius_train = ', self.emitter_radius_train)
         # print('shape_emitter.id() = ', shape_emitter_train.id())
         # print('------------------------')
 
-        # if seed % 2 == 0:
-        #     # Luz techo izquierda
-        #     self.emitter_pos_train = mi.Point3f(-0.50, 1.98, -0.03)
-        #     self.emitter_normal_train = mi.Point3f(0., -1. , 0.)
-        #     self.emitter_radius_train = mi.Float(0.40)
-        # else:
-        #     # Luz techo derecha
-        #     self.emitter_pos_train = mi.Point3f(0.50, 1.98, -0.03)
-        #     self.emitter_normal_train = mi.Point3f(0., -1. , 0.)
-        #     self.emitter_radius_train = mi.Float(0.40)
+        if seed % 2 == 0:
+            # Luz izquierda
+            self.emitter_pos_train = mi.Point3f(-1., 1., -0.2)
+            self.emitter_normal_train = mi.Point3f(1., 0. , 0.)
+            self.emitter_radius_train = mi.Float(0.30)
+            self.emitter_radiance_train = mi.Color3f(5.,5.,5.)
+        else:
+            # Luz derecha
+            self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
+            self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
+            self.emitter_radius_train = mi.Float(0.30)
+            self.emitter_radiance_train = mi.Color3f(5.,5.,5.)
 
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
-                                self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, sampler_m = self.residual_sampler_m)
+                                self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train,
+                                sampler_m = self.residual_sampler_m)
         residual = mi.Color3f(aov[-3:])
         return residual
 
@@ -93,25 +93,16 @@ class NeradEmitters(Nerad, nn.Module):
                emitter_pos,
                emitter_normal,
                emitter_radius,
+               emitter_radiance,
                **kwargs):
 
         m = 1
 
         # if emitter_pos is None:
-        #     # Luz techo centro
-        #     emitter_pos = mi.Point3f(0, 1.98, -0.03)
-        #     emitter_normal = mi.Point3f(0., -1. , 0.)
-        #     emitter_radius = mi.Float(0.40)
-            # # Luz techo izquierda
-            # emitter_pos = mi.Point3f(-0.50, 1.98, -0.03)
-            # emitter_normal = mi.Point3f(0., -1. , 0.)
-            # emitter_radius = mi.Float(0.40)
-
-            #if self.emitter_pos_test is None:
-            #    self.emitter_pos_test, self.emitter_normal_test, self.emitter_radius_test = self.get_emitter_test(scene)
-            #emitter_pos = self.emitter_pos_test
-            #emitter_normal = self.emitter_normal_test
-            #emitter_radius = self.emitter_radius_test
+        #     # Luz derecha
+        #     self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
+        #     self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
+        #     self.emitter_radius_train = mi.Float(0.30)
 
         sampler_m = kwargs.get("sampler_m", None)
         if sampler_m is not None:
@@ -163,7 +154,7 @@ class NeradEmitters(Nerad, nn.Module):
 
         # Esta función sólo se utiliza en nerad_specular. Para nerad no specular, simplemente retorna los mismos valores de entrada
         si, prev_si, prev_bsdf_pdf, prev_bsdf_delta, valid_ray, throughput, eta = self.trace_speculars(scene, sampler, si, active, prev_si, prev_bsdf_pdf, prev_bsdf_delta, valid_ray, throughput, eta)
-        bsdf = si.bsdf()
+        bsdf = si.bsdf() # No parece necesario
 
         # ---------------------- Eval LHS ----------------------
         # A partir de si (surface interaction) se obtienen los parámetros de entrada a la red neuronal
@@ -178,7 +169,7 @@ class NeradEmitters(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #E = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        E = self.get_emission(dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=mi.Color3f(20,20,20))
+        E = self.get_emission(dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         #if self.return_only_LHS:
         #    mask = valid_ray | (active & si.is_valid())
@@ -213,7 +204,8 @@ class NeradEmitters(Nerad, nn.Module):
         #em_sample_result = self.emitter_hit_custom(scene, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17, 12, 4))
         #em_sample_result = self.emitter_hit_area_light(scene, sampler, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17, 12, 4))
         #em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17,12,4))
-        em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx, dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), mi.Color3f(100,100,100))
+        em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
+                                                                    dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
 
         # ------------------ Detached BSDF sampling -------------------
 
@@ -234,17 +226,21 @@ class NeradEmitters(Nerad, nn.Module):
 
         # -------------------- Stopping criterion ---------------------
 
-        depth[si.is_valid()] += 1
-        active = active_next
+        # Si depth es 0 indica que es la primera intersección
+        depth[si.is_valid()] += 1 # depth = [1, 1, 1, .. 1048566 skipped .. ,1, 1, 1]
+        active = active_next # active_next = [True, True, True, .. 1048566 skipped .. ,True, True, True]
 
+        # Se intersecta cada uno de los 1078566 rayos sampleados con la escena
         si = scene.ray_intersect(ray,
                                  ray_flags=mi.RayFlags.All,
                                  coherent=dr.eq(depth, 0))
 
+        # Se dtermina la bsdf para cada intersección en la dirección del rayo
         bsdf = si.bsdf(ray)
 
         # ---------------------- Handle specular surfaces (if any) ----------------------
 
+        # Si no hay superficies especulares se devuelve lo mismo que se le pasa por parámetro
         si, prev_si, prev_bsdf_pdf, prev_bsdf_delta, valid_ray, throughput, eta = self.trace_speculars(scene, sampler, si, active, prev_si, prev_bsdf_pdf, prev_bsdf_delta, valid_ray, throughput, eta)
         bsdf = si.bsdf()
 
@@ -260,19 +256,13 @@ class NeradEmitters(Nerad, nn.Module):
                                     self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius), mi.Vector3f(0))
 
         #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
-        RHS = (RHS_net + em_sample_result) * throughput
+        RHS = RHS_net * throughput + em_sample_result
 
         # ---------------------- Deal with repeat (if any) ----------------------
         if m > 1:
             RHS = dr.block_sum(RHS, self.m)/self.m
             validity = dr.select(valid_ray, mi.Float(1), mi.Float(0))
             valid_ray = dr.block_sum(validity, self.m)>0
-
-
-        #aov = dr.select(valid_ray, E + LHS, 0)
-        #rgb = dr.select(valid_ray, E + RHS, 0)
-
-
 
         aov = dr.select(valid_ray, E + LHS, 0)
         rgb = dr.select(valid_ray, E + RHS, 0)

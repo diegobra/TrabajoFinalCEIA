@@ -82,7 +82,7 @@ class HighQuality(mi.SamplingIntegrator):
         # Se obtienen los emisores circulares
         circular_emitters = self.get_circular_emitters(scene)
 
-        emitter_pos, emitter_normal, emitter_radius = circular_emitters[0]
+        emitter_pos, emitter_normal, emitter_radius, emitter_radiance = circular_emitters[0]
         # emitter_pos = None
         # emitter_normal = None
         # emitter_radius = None
@@ -122,7 +122,8 @@ class HighQuality(mi.SamplingIntegrator):
                         active=mi.Bool(True),
                         emitter_pos = emitter_pos,
                         emitter_normal = emitter_normal,
-                        emitter_radius = emitter_radius
+                        emitter_radius = emitter_radius,
+                        emitter_radiance = emitter_radiance
                     )
                 else:
                     L, valid, aov = self.integrator.sample(
@@ -133,7 +134,8 @@ class HighQuality(mi.SamplingIntegrator):
                         active = mi.Bool(True),
                         emitter_pos = emitter_pos,
                         emitter_normal = emitter_normal,
-                        emitter_radius = emitter_radius)
+                        emitter_radius = emitter_radius,
+                        emitter_radiance = emitter_radiance)
 
                 # Only use the coalescing feature when rendering enough samples
                 #block.set_coalesce(block.coalesce() and spp >= 4)
@@ -276,6 +278,8 @@ class HighQuality(mi.SamplingIntegrator):
                 area = shape.surface_area()
                 radius = dr.sqrt(area / dr.pi)  # Radio estimado suponiendo un disco equivalente
 
-                emitters.append((mi.Point3f(position), normal, radius))
+                radiance = mi.Color3f(5., 5., 5.)
+
+                emitters.append((mi.Point3f(position), normal, radius, radiance))
 
         return emitters

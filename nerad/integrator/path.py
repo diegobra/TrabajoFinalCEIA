@@ -142,6 +142,7 @@ class MyPathTracer(mi.SamplingIntegrator):
                                                sampler.next_2d(),
                                                active_next)
 
+        # Genera un nuevo rayo a partir de la interacción con la superficie
         ray = si.spawn_ray(si.to_world(bsdf_sample.wo))
 
         # When the path tracer is differentiated, we must be careful that
