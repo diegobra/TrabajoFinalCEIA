@@ -175,14 +175,14 @@ class NeradEmitters(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #E = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        E = self.get_emission(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+        E = self.get_emission(throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
-        #if self.return_only_LHS:
-        #    mask = valid_ray | (active & si.is_valid())
-        #    LHS = dr.select(mask, E + LHS, 0)
-        #    zero_vec = LHS*0
-        #    return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
+        if self.return_only_LHS:
+           mask = valid_ray | (active & si.is_valid())
+           LHS = dr.select(mask, E + LHS, 0)
+           zero_vec = LHS*0
+           return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
 
 
         # ---------------------- repeat (if requested) ----------------------
@@ -207,11 +207,7 @@ class NeradEmitters(Nerad, nn.Module):
         active_next = si.is_valid() # Tamaño 32768*32
 
         #em_sample_result = self.sample_emitter(scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next)
-
-        #em_sample_result = self.emitter_hit_custom(scene, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17, 12, 4))
-        #em_sample_result = self.emitter_hit_area_light(scene, sampler, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17, 12, 4))
-        #em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, si, emitter_pos, emitter_normal, emitter_radius, mi.Color3f(17,12,4))
-        em_sample_result = self.emitter_hit_area_light_many_samples(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
+        em_sample_result = self.sample_custom_emitter(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
                                                                     dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
 
         # ------------------ Detached BSDF sampling -------------------
@@ -254,7 +250,7 @@ class NeradEmitters(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #bsdf_sample_result = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        bsdf_sample_result = self.get_emission(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+        bsdf_sample_result = self.get_emission(throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                                dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         # ---------------------- Eval RHS ----------------------

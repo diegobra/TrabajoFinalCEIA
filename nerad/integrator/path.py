@@ -175,7 +175,7 @@ class MyPathTracer(mi.SamplingIntegrator):
 
     import mitsuba as mi
 
-    def get_emission(self, scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
+    def get_emission(self, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
                  emitter_pos, emitter_normal, emitter_radius,
                  emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
         """
@@ -254,7 +254,7 @@ class MyPathTracer(mi.SamplingIntegrator):
         # Cálculo de la PDF direccional manualmente:
         # pdf = (distancia^2) / (área del emisor * cos(θ))
         cos_theta = dr.dot(-d_to_emitter, nor)
-        emitter_pdf = dr.select(cos_theta > 0,
+        emitter_pdf = dr.select((cos_theta > 0) & ~prev_bsdf_delta,
                                 dist_sq / (emitter_area * cos_theta),
                                 0.0)
 
@@ -359,7 +359,7 @@ class MyPathTracer(mi.SamplingIntegrator):
     import mitsuba as mi
 
 
-    def emitter_hit_area_light_many_samples(
+    def sample_custom_emitter(
         self,
         scene,
         sampler,
@@ -439,14 +439,18 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         cos_emitter = dr.maximum(dr.dot(emitter_normal, -dir_to_emitter), 0.0)
         disk_area = dr.pi * (emitter_radius ** 2)
-        emitter_pdf_solid_angle = (dist_sq / disk_area) * dr.rcp(cos_emitter + 1e-4)
+        #emitter_pdf_solid_angle = (dist_sq / disk_area) * dr.rcp(cos_emitter + 1e-4)
+        emitter_pdf_solid_angle = (dist_sq / disk_area) * dr.rcp(dr.maximum(cos_emitter, 1e-4))
+
 
         #emitter_pdf_solid_angle /= dr.maximum(dr.sum(emitter_pdf_solid_angle), 1.0)
 
 
         # 4.2) Peso MIS (balance heuristic)
         #   w = prev_bsdf_pdf / (prev_bsdf_pdf + emitter_pdf_solid_angle)
-        w_mis = mis_weight(prev_bsdf_pdf, emitter_pdf_solid_angle)
+        #w_mis = mis_weight(prev_bsdf_pdf, emitter_pdf_solid_angle)
+        w_mis = mis_weight(emitter_pdf_solid_angle, prev_bsdf_pdf)
+
 
         # 4.3) Evaluar la BSDF en la superficie receptora:
         #      "wo" = dirección saliente = la que apunta hacia la luz
@@ -458,8 +462,8 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         # Contribución final de cada sample:
         # throughput * [BSDF] * [radiancia_luz] * [MIS] * [cos_emitter / dist^2]
-        #contrib = throughput * bsdf_val * emitter_radiance * w_mis * cos_emitter * inv_dist_sq
-        contrib = throughput * bsdf_val * emitter_radiance * cos_emitter * inv_dist_sq
+        contrib = throughput * bsdf_val * emitter_radiance * w_mis * cos_emitter * inv_dist_sq
+        #contrib = throughput * bsdf_val * emitter_radiance * cos_emitter * inv_dist_sq
 
 
         # ---------------------------
