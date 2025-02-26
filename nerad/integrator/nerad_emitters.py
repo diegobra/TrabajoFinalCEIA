@@ -175,7 +175,8 @@ class NeradEmitters(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #E = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        E = self.get_emission(dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
+        E = self.get_emission(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+                               dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         #if self.return_only_LHS:
         #    mask = valid_ray | (active & si.is_valid())
@@ -253,7 +254,8 @@ class NeradEmitters(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #bsdf_sample_result = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        bsdf_sample_result = self.get_emission(dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
+        bsdf_sample_result = self.get_emission(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+                                               dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         # ---------------------- Eval RHS ----------------------
         with dr.suspend_grad():
@@ -264,7 +266,7 @@ class NeradEmitters(Nerad, nn.Module):
 
         #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
         #RHS = RHS_net * throughput + em_sample_result
-        RHS = RHS_net * throughput + em_sample_result + bsdf_sample_result * prev_bsdf_pdf * throughput
+        RHS = RHS_net * throughput + em_sample_result + bsdf_sample_result # * prev_bsdf_pdf * throughput
 
         # ---------------------- Deal with repeat (if any) ----------------------
         if m > 1:

@@ -175,7 +175,98 @@ class MyPathTracer(mi.SamplingIntegrator):
 
     import mitsuba as mi
 
-    def get_emission(self, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
+    def get_emission(self, scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
+                 emitter_pos, emitter_normal, emitter_radius,
+                 emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
+        """
+        Retorna la radiancia (Le) para cada interacción en 'si',
+        asumiendo un emisor definido manualmente por un disco con centro 'emitter_pos',
+        normal 'emitter_normal', y radio 'emitter_radius'.
+
+        Parámetros
+        ----------
+        scene : Scene
+            La escena de Mitsuba.
+        throughput : mi.Color3f
+            El throughput acumulado hasta la interacción actual.
+        prev_si : SurfaceInteraction
+            La interacción previa en la trayectoria.
+        prev_bsdf_pdf : float
+            La densidad de probabilidad del BSDF previa.
+        prev_bsdf_delta : bool
+            Indica si la interacción previa fue especular (delta BSDF).
+        si : SurfaceInteraction (vectorizado)
+            Contiene p (posiciones) y n (normales) de muchas interacciones.
+        emitter_pos : mi.Vector3f
+            Centro del disco emisor.
+        emitter_normal : mi.Vector3f
+            Normal del disco emisor (no necesariamente normalizada).
+        emitter_radius : float
+            Radio del disco emisor.
+        emitter_radiance : float, mi.Color3f o similar
+            Radiancia emitida. Si es un color, puede ser mi.Color3f.
+        tolerance : float
+            Umbral para la distancia al plano, etc.
+
+        Retorna
+        -------
+        radiancia : del mismo tipo que 'emitter_radiance'
+            Valor de la radiancia ponderada por MIS para cada interacción.
+        """
+
+        # p y n pueden ser 'arrays' de dimensión [N, 3] internamente.
+        p = si.p
+        n = si.n
+
+        # Normalizamos la normal del emisor
+        nor = emitter_normal / dr.norm(emitter_normal)
+
+        # Vector d desde el centro hasta cada punto p
+        d = p - emitter_pos
+
+        # Distancia (escalar) al plano según la normal
+        dist_plano = dr.dot(d, nor)
+
+        # 1. Máscara: verificar que el punto esté cerca del plano
+        belongs = dr.abs(dist_plano) < tolerance
+
+        # 2. Comprobar que la proyección en el plano caiga dentro del radio
+        d_plano = d - dist_plano * nor
+        belongs &= (dr.norm(d_plano) < emitter_radius)
+
+        # 3. Comprobar orientación de la normal de la superficie con la del emisor
+        dot_normales = dr.dot(n, nor)
+
+        # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
+        Le_cero = dr.zeros(type(emitter_radiance))  # Construye un "cero" del mismo tipo que Le
+        Le = dr.select(belongs, emitter_radiance, Le_cero)
+
+        # Cálculo manual de la probabilidad de dirección del emisor (PDF)
+        # Asumiendo un disco emisor uniforme:
+        # Área del disco emisor
+        emitter_area = dr.pi * emitter_radius ** 2
+
+        # Vector de dirección desde la interacción previa hacia la posición actual
+        d_to_emitter = emitter_pos - prev_si.p
+        dist_sq = dr.squared_norm(d_to_emitter)
+        d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)  # Normalizamos la dirección
+
+        # Cálculo de la PDF direccional manualmente:
+        # pdf = (distancia^2) / (área del emisor * cos(θ))
+        cos_theta = dr.dot(-d_to_emitter, nor)
+        emitter_pdf = dr.select(cos_theta > 0,
+                                dist_sq / (emitter_area * cos_theta),
+                                0.0)
+
+        # Cálculo del peso de Muestras Múltiples Independientes (MIS)
+        mis = mis_weight(prev_bsdf_pdf, emitter_pdf)
+
+        # Radiancia final con MIS aplicado
+        radiancia = throughput * mis * Le
+
+        return radiancia
+
+    def get_emission_old_260225(self, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
         """
         Retorna la radiancia (Le) para cada interacción en 'si',
         asumiendo un emisor definido por un disco con centro 'pos_emisor',
@@ -311,12 +402,14 @@ class MyPathTracer(mi.SamplingIntegrator):
         # ---------------------------
         to_emitter  = sampled_point - si.p  # [num_samples, 3]
         dist_sq     = dr.sum(to_emitter * to_emitter)  # [num_samples]
-        valid_mask  = dist_sq > 0.0
+        valid_mask  = dist_sq > 1e-1 #0.0
         dist        = dr.sqrt(dist_sq)
         dir_to_emitter = to_emitter * dr.rcp(dist)  # normalizar
 
+
+        epsilon = dr.maximum(0.01, 1e-4 * dist)
         shadow_ray = mi.Ray3f(
-            o           = si.p + dir_to_emitter*0.01, # Se suma este epsilon en dirección hacia el emisor para evitar casos en que intersecta la propia superficie
+            o           = si.p + dir_to_emitter * epsilon, # Se suma este epsilon en dirección hacia el emisor para evitar casos en que intersecta la propia superficie
             d           = dir_to_emitter,
             time        = si.time,
             wavelengths = si.wavelengths
@@ -345,7 +438,10 @@ class MyPathTracer(mi.SamplingIntegrator):
         #emitter_pdf_solid_angle = (dist_sq * (1.0 / disk_area)) * dr.rcp(dr.maximum(cos_emitter, 1e-8))
 
         cos_emitter = dr.maximum(dr.dot(emitter_normal, -dir_to_emitter), 0.0)
+        disk_area = dr.pi * (emitter_radius ** 2)
         emitter_pdf_solid_angle = (dist_sq / disk_area) * dr.rcp(cos_emitter + 1e-4)
+
+        #emitter_pdf_solid_angle /= dr.maximum(dr.sum(emitter_pdf_solid_angle), 1.0)
 
 
         # 4.2) Peso MIS (balance heuristic)
