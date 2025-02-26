@@ -167,7 +167,7 @@ class NeradEmitters(Nerad, nn.Module):
         pts, dirs, normals, albedo = self.extract_inputs(si)
 
         # Se evalúa la radiosidad para cada interacción en la red neuronal
-        LHS = self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius)
+        LHS = self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
 
         # Se calcula LHS para los rayos válidos
         LHS = dr.select(active & si.is_valid(), throughput*LHS, mi.Vector3f(0))
@@ -258,11 +258,11 @@ class NeradEmitters(Nerad, nn.Module):
             with torch.no_grad():
                 pts, dirs, normals, albedo = self.extract_inputs(si)
                 RHS_net = dr.select(active & si.is_valid(),
-                                    self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius), mi.Vector3f(0))
+                                    self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance), mi.Vector3f(0))
 
         #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
         #RHS = RHS_net * throughput + em_sample_result
-        RHS = RHS_net * throughput + em_sample_result + bsdf_sample_result # * prev_bsdf_pdf * throughput
+        RHS = RHS_net * throughput + em_sample_result + bsdf_sample_result
 
         # ---------------------- Deal with repeat (if any) ----------------------
         if m > 1:

@@ -16,12 +16,12 @@ class MitsubaWrapper(nn.Module):
         self.scene_max = scene_max
         self.name = name or type(self).__name__
 
-    def eval(self, pts, dirs=None, norms=None, albedo=None, emitter_pos=None, emitter_normal=None, emitter_radius=None):
+    def eval(self, pts, dirs=None, norms=None, albedo=None, emitter_pos=None, emitter_normal=None, emitter_radius=None, emitter_radiance=None):
         if counter_profiler.enabled:
             counter_profiler.record(f"{self.name}.eval.pts", dr.shape(pts)[1])
         time_profiler.start(f"{self.name}.eval")
         pts = (pts - self.scene_min) / (self.scene_max - self.scene_min)
-        result = self._eval(pts, dirs, norms, albedo, emitter_pos, emitter_normal, emitter_radius)
+        result = self._eval(pts, dirs, norms, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
         time_profiler.end(f"{self.name}.eval")
         return result
 

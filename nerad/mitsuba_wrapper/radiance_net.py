@@ -73,8 +73,8 @@ class RadianceMLP(nn.Module):
             in_size += 3                                #albedo
 
         if emitter_input:
-            #in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 # posición, normal y radio del emisor generado
-            in_size += 3 + 3 + 1 # posición, normal y radio del emisor generado
+            #in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 # posición, normal y radio del emisor de entrada
+            in_size += 3 + 3 + 1 + 3 # posición, normal, radio y radiancia del emisor de entrada
 
         hidden_layers = []
         for _ in range(hidden):
@@ -88,7 +88,7 @@ class RadianceMLP(nn.Module):
             nn.Linear(width, 3),
         )
 
-    def forward(self, points, dirs, normals, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None):
+    def forward(self, points, dirs, normals, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None, emitter_radiance=None):
         net_in = torch.cat(
             [
                 embed(points, self.pos_emb),    # (HashGrid) torch.Size([32768, 99])
@@ -115,7 +115,8 @@ class RadianceMLP(nn.Module):
                     #embed(emitter_pos, self.emitter_pos_emb),   # torch.Size([32768, 99])
                     emitter_pos,   # torch.Size([32768, 99])
                     emitter_normal,                     # torch.Size([32768, 3])
-                    emitter_radius],                    # torch.Size([32768, 1])
+                    emitter_radius,
+                    emitter_radiance],                    # torch.Size([32768, 1])
                 dim=-1,
             )
 
@@ -148,7 +149,7 @@ class MitsubaRadianceNetworkWrapper(MitsubaWrapper):
         super().__init__(scene_min, scene_max, "radiance_net")
         self.network = RadianceMLP(width, hidden, position_embedding, direction_embedding, emitter_position_embedding, scene_properties_input, emitter_input)
 
-    def _eval(self, pts, dirs, norms, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None):
+    def _eval(self, pts, dirs, norms, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None, emitter_radiance=None):
         p_tensor = vec_to_tens_safe(pts + self.grad_activator) # TensorXf(shape=(32768, 3))
         d_tensor = vec_to_tens_safe(dirs) # TensorXf(shape=(32768, 3))
         n_tensor = vec_to_tens_safe(norms) # TensorXf(shape=(32768, 3))
@@ -158,8 +159,9 @@ class MitsubaRadianceNetworkWrapper(MitsubaWrapper):
             emitter_normal_tenosr = vec_to_tens_safe(dr.tile(emitter_normal, len(pts[0])))
             #emitter_radius_tensor = vec_to_tens_safe(emitter_radius)
             emitter_radius_tensor = mi.TensorXf(dr.tile(emitter_radius, len(pts[0])), shape=(len(pts[0]), 1))
+            emitter_radiance_tensor = vec_to_tens_safe(dr.tile(emitter_radiance, len(pts[0])))
             torch_out = self.eval_torch(
-                p_tensor, d_tensor, n_tensor, alb_tensor, emitter_pos_tensor, emitter_normal_tenosr, emitter_radius_tensor)
+                p_tensor, d_tensor, n_tensor, alb_tensor, emitter_pos_tensor, emitter_normal_tenosr, emitter_radius_tensor, emitter_radiance_tensor)
         else:
             torch_out = self.eval_torch(
                 p_tensor, d_tensor, n_tensor, alb_tensor)
@@ -168,8 +170,8 @@ class MitsubaRadianceNetworkWrapper(MitsubaWrapper):
         return dr.abs(output)
 
     @dr.wrap_ad(source='drjit', target='torch')
-    def eval_torch(self, pts, dirs, norms, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None):
-        return self.network(pts, dirs, norms, albedo, emitter_pos, emitter_normal, emitter_radius)
+    def eval_torch(self, pts, dirs, norms, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None, emitter_radiance=None):
+        return self.network(pts, dirs, norms, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
 
     def _traverse(self, callback):
         callback.put_parameter("network", self.network, mi.ParamFlags.Differentiable)
