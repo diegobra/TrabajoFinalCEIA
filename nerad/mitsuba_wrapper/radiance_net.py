@@ -73,7 +73,7 @@ class RadianceMLP(nn.Module):
             in_size += 3                                #albedo
 
         if emitter_input:
-            #in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 # posición, normal y radio del emisor de entrada
+            #in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 + 3 # posición, normal y radio del emisor de entrada
             in_size += 3 + 3 + 1 + 3 # posición, normal, radio y radiancia del emisor de entrada
 
         hidden_layers = []

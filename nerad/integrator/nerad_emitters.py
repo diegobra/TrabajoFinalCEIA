@@ -70,18 +70,24 @@ class NeradEmitters(Nerad, nn.Module):
         # self.emitter_radius_train = mi.Float(0.10)
         # self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
 
-        # if seed % 2 == 0:
+        # if seed % 3 == 0:
         #     # Luz izquierda
         #     self.emitter_pos_train = mi.Point3f(-1., 1., -0.2)
         #     self.emitter_normal_train = mi.Point3f(1., 0. , 0.)
         #     self.emitter_radius_train = mi.Float(0.10)
         #     self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
-        # else:
+        # elif seed % 3 == 1:
         #     # Luz derecha
         #     self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
         #     self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
         #     self.emitter_radius_train = mi.Float(0.10)
         #     self.emitter_radiance_train = mi.Color3f(17.,12.,4.)
+        # elif seed % 3 == 2:
+        #     # Luz del techo
+        #     self.emitter_pos_train = mi.Point3f(0., 2.0, -0.03)
+        #     self.emitter_normal_train = mi.Point3f(0.0, -1.0, 0.0)
+        #     self.emitter_radius_train = mi.Float(0.10)
+        #     self.emitter_radiance_train = mi.Color3f(17., 12., 4.)
 
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
                                 self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train,
