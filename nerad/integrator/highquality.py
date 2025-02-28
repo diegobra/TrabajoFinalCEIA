@@ -294,6 +294,10 @@ class HighQuality(mi.SamplingIntegrator):
                 area = shape.surface_area()
                 radius = dr.sqrt(area / dr.pi)  # Radio estimado suponiendo un disco equivalente
 
+                print('Área calculada = ', area)
+
+                print('radius = ', radius)
+
                 radiance = mi.Color3f(17., 12., 4.)
 
                 emitters.append((mi.Point3f(position), normal, radius, radiance))

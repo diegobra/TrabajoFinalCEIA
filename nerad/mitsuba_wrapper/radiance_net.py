@@ -73,8 +73,8 @@ class RadianceMLP(nn.Module):
             in_size += 3                                #albedo
 
         if emitter_input:
-            #in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 + 3 # posición, normal y radio del emisor de entrada
-            in_size += 3 + 3 + 1 + 3 # posición, normal, radio y radiancia del emisor de entrada
+            in_size += embed_size(3, self.emitter_pos_emb) + 3 + 1 + 3 # posición, normal y radio del emisor de entrada
+            #in_size += 3 + 3 + 1 + 3 # posición, normal, radio y radiancia del emisor de entrada
 
         hidden_layers = []
         for _ in range(hidden):
@@ -112,8 +112,8 @@ class RadianceMLP(nn.Module):
             net_in = torch.cat(
                 [
                     net_in,                             # torch.Size([32768, 108])
-                    #embed(emitter_pos, self.emitter_pos_emb),   # torch.Size([32768, 99])
-                    emitter_pos,   # torch.Size([32768, 99])
+                    embed(emitter_pos, self.emitter_pos_emb),   # torch.Size([32768, 99])
+                    #emitter_pos,   # torch.Size([32768, 99])
                     emitter_normal,                     # torch.Size([32768, 3])
                     emitter_radius,
                     emitter_radiance],                    # torch.Size([32768, 1])
