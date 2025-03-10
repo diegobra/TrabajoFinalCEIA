@@ -36,6 +36,7 @@ def render_and_save_image(
     rendering: RenderingConfig,
     sensor: Union[int, mi.Sensor] = 0,
     formats: list[str] = None,
+    save_image_to_disk = True,
 ) -> list[mi.Bitmap]:
     if formats is None:
         formats = ["png", "exr"]
@@ -54,9 +55,11 @@ def render_and_save_image(
 
             if "nerad" in rendering.integrator:
                 _, LHS, RHS = process_nerad_output(img)
-                save_image(folder / "rhs", name, formats, RHS)
-                save_image(folder / "lhs", name, formats, LHS)
+                if save_image_to_disk:
+                    save_image(folder / "rhs", name, formats, RHS)
+                    save_image(folder / "lhs", name, formats, LHS)
                 return [LHS, RHS]
             else:
-                save_image(folder, name, formats, img)
+                if save_image:
+                    save_image(folder, name, formats, img)
                 return [img]
