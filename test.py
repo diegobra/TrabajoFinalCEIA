@@ -20,6 +20,75 @@ from nerad.utils.json_utils import write_json
 
 logger = logging.getLogger(__name__)
 
+import cv2
+import numpy as np
+
+def tensor_to_opencv(outputs):
+    """
+    Convierte un tensor de Mitsuba a una imagen correctamente normalizada
+    para visualizar en OpenCV.
+    """
+    # Convertir a Bitmap de Mitsuba con la misma configuración usada al guardar PNG
+    img_mi = mi.Bitmap(outputs[0].numpy())
+
+    # Convertir a formato sRGB (igual que cuando se guarda como PNG)
+    img_mi = img_mi.convert(
+        mi.Bitmap.PixelFormat.RGB,  # No necesitamos el canal alfa
+        mi.Struct.Type.UInt8,  # Convertir a uint8 para OpenCV
+        True  # Aplicar corrección gamma automáticamente
+    )
+
+    # Convertir la imagen Bitmap de Mitsuba a NumPy
+    img_np = np.array(img_mi)
+
+    # Convertir RGB → BGR para OpenCV
+    img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
+
+    return img_np
+
+def interactive_render(cfg, scene, transforms, images, test_integrators, out_root):
+    """
+    Muestra la imagen renderizada en un popup interactivo y permite navegar la cámara
+    con las flechas del teclado en tiempo real.
+    """
+    view_idx = 0  # Índice inicial de vista
+    num_views = len(transforms)
+
+    while True:
+        dr.flush_malloc_cache()
+        torch.cuda.empty_cache()
+
+        gt = {"image": images[view_idx] if images is not None else None}
+        rendering = cfg.test_rendering["image"]
+        sensor = create_sensor(rendering.width, transforms[str(view_idx)])
+
+        outputs = render_and_save_image(
+            out_root / "interactive",
+            f"{view_idx:03d}",
+            scene,
+            test_integrators["image"],
+            rendering,
+            sensor,
+        )
+
+        img_LHS_np = tensor_to_opencv(outputs)
+
+        cv2.imshow("Renderizado Interactivo", img_LHS_np)
+        key = cv2.waitKey(100)  # Espera 100ms por una tecla
+
+        if key == 27:  # Tecla 'ESC' para salir
+            break
+        elif key == ord('d') or key == 83:  # Flecha derecha
+            view_idx = (view_idx + 1) % num_views
+        elif key == ord('a') or key == 81:  # Flecha izquierda
+            view_idx = (view_idx - 1) % num_views
+        elif key == ord('w') or key == 82:  # Flecha arriba
+            pass  # Implementar movimiento en eje Y si es necesario
+        elif key == ord('s') or key == 84:  # Flecha abajo
+            pass  # Implementar movimiento en eje Y si es necesario
+
+    cv2.destroyAllWindows()
+
 
 @hydra.main(version_base="1.2", config_path="config", config_name="test")
 def main(cfg: TestConfig = None):
@@ -77,6 +146,9 @@ def main(cfg: TestConfig = None):
     if len(view_indices) == 0:
         n_views = 1 if cfg.n_views <= 0 else cfg.n_views
         view_indices = list(range(n_views))
+
+    # Esto es nuevo. Agregar controles para su ejecución o quitarlo de test.py y ejecutarlo aparte. 090325
+    interactive_render(cfg, scene, transforms, images, test_integrators, out_root)
 
     logger.info(f"Render {len(view_indices)} views to {out_root}")
     all_metrics = {}
