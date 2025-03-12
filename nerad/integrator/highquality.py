@@ -19,7 +19,11 @@ class HighQuality(mi.SamplingIntegrator):
         super().__init__(mi.Properties())
         self.block_size = block_size
         self.integrator = integrator
+        self.emitter_params = None
 
+    def set_emitter(self, emitter_pos, emitter_normal, emitter_radius, emitter_radiance):
+        """Almacena los parámetros del emisor para usarlos en render()."""
+        self.emitter_params = (emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
 
     def prepare(self,
                 sensor: mi.Sensor,
@@ -85,23 +89,27 @@ class HighQuality(mi.SamplingIntegrator):
         if len(circular_emitters) > 0:
             emitter_pos, emitter_normal, emitter_radius, emitter_radiance = circular_emitters[0]
         else:
-            # # Luz izquierda
-            # emitter_pos = mi.Point3f(-1., 1., -0.2)
-            # emitter_normal = mi.Point3f(1., 0. , 0.)
-            # emitter_radius = mi.Float(0.10)
-            # emitter_radiance = mi.Color3f(17.,12.,4.)
+            if self.emitter_params is not None:
+                (emitter_pos, emitter_normal, emitter_radius, emitter_radiance) = self.emitter_params
+            else:
 
-            # # Luz derecha
-            # emitter_pos = mi.Point3f(1., 1., -0.2)
-            # emitter_normal = mi.Point3f(-1., 0. , 0.)
-            # emitter_radius = mi.Float(0.10)
-            # emitter_radiance = mi.Color3f(17.,12.,4.)
+                # # Luz izquierda
+                # emitter_pos = mi.Point3f(-1., 1., -0.2)
+                # emitter_normal = mi.Point3f(1., 0. , 0.)
+                # emitter_radius = mi.Float(0.10)
+                # emitter_radiance = mi.Color3f(17.,12.,4.)
 
-            # Luz del techo
-            emitter_pos = mi.Point3f(00, 2.0, -0.03)
-            emitter_normal = mi.Point3f(0.0, -1.0, 0.0)
-            emitter_radius = mi.Float(0.10)
-            emitter_radiance = mi.Color3f(17., 12., 4.)
+                # # Luz derecha
+                # emitter_pos = mi.Point3f(1., 1., -0.2)
+                # emitter_normal = mi.Point3f(-1., 0. , 0.)
+                # emitter_radius = mi.Float(0.10)
+                # emitter_radiance = mi.Color3f(17.,12.,4.)
+
+                # Luz del techo
+                emitter_pos = mi.Point3f(0.0, 2.0, -0.03)
+                emitter_normal = mi.Point3f(0.0, -1.0, 0.0)
+                emitter_radius = mi.Float(0.10)
+                emitter_radiance = mi.Color3f(17., 12., 4.)
 
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)

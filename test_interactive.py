@@ -81,12 +81,22 @@ def get_intersection(scene, sensor, x, y, img_width, img_height):
     si = scene.ray_intersect(ray)
 
     if si.is_valid()[0]:
+
+        normal = si.n
+
+        # Determinar si el rayo impactó desde dentro o fuera de la cara
+        dot_product = dr.dot(si.n, ray.d)
+
+        if dot_product[0] > 0:  # Si el rayo impactó desde dentro, invertir la normal
+            print("El rayo impactó desde dentro, invirtiendo la normal")
+            normal = -normal
+
         print(f"Intersección en ({si.p[0]}, {si.p[1]}, {si.p[2]})")
-        print(f"   Normal: ({si.n[0]}, {si.n[1]}, {si.n[2]})")
+        print(f"   Normal: ({normal})")
         print(f"   Albedo: {si.bsdf()}")  # Muestra información del material
         print(f"   Shape: {si.shape[0].id()}")  # Muestra información del material
 
-        return si.p, si  # Retorna la posición y la intersección completa
+        return si.p, normal  # Retorna la posición y la intersección completa
     else:
         print("No se encontró intersección")
         return None, None
@@ -96,14 +106,23 @@ def on_mouse_click(event, x, y, flags, param):
     Callback que se activa cuando el usuario hace clic en la imagen renderizada.
     """
     if event == cv2.EVENT_LBUTTONDOWN:
-        scene, sensor, img_width, img_height = param
+        scene, sensor, img_width, img_height, test_integrators, parm_img_clicked = param
         print(f"🖱 Click en imagen en ({x}, {y})")
 
         # Obtener intersección
-        position, surface_info = get_intersection(scene, sensor, x, y, img_width, img_height)
+        position, normal = get_intersection(scene, sensor, x, y, img_width, img_height)
 
         if position is not None:
             print(f"Coordenadas en mundo: {position}")
+
+            parm_img_clicked[0] = True
+
+            emitter_pos = position
+            emitter_normal = normal
+            emitter_radius = mi.Float(0.10)
+            emitter_radiance = mi.Color3f(17.,12.,4.)
+
+            test_integrators['image'].set_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
 
 def interactive_render(cfg, scene, transforms, images, test_integrators, out_root):
     """
@@ -115,6 +134,7 @@ def interactive_render(cfg, scene, transforms, images, test_integrators, out_roo
     cv2.namedWindow("Renderizado Interactivo")
 
     recalculate_image = True
+    parm_img_clicked = {0: False}
 
     while True:
 
@@ -140,8 +160,12 @@ def interactive_render(cfg, scene, transforms, images, test_integrators, out_roo
             img_height, img_width, _ = img_LHS_np.shape
 
             recalculate_image = False
+            parm_img_clicked = {0: False}
 
-        cv2.setMouseCallback("Renderizado Interactivo", on_mouse_click, param=(scene, sensor, img_width, img_height))
+        cv2.setMouseCallback("Renderizado Interactivo", on_mouse_click, param=(scene, sensor, img_width, img_height, test_integrators, parm_img_clicked))
+
+        if parm_img_clicked[0] == True:
+            recalculate_image = True
 
         cv2.imshow("Renderizado Interactivo", img_LHS_np)
         key = cv2.waitKey(100)  # Espera 100ms por una tecla
