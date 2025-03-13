@@ -266,6 +266,74 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         return radiancia
 
+    def get_direct_emission(self, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
+                    emitter_pos, emitter_normal, emitter_radius,
+                    emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
+        """
+        Retorna la radiancia total directa, incluyendo la emisión del emisor y la luz directa desde otras superficies.
+        """
+        # p y n pueden ser 'arrays' de dimensión [N, 3] internamente.
+        p = si.p
+        n = si.n
+
+        # Normalizamos la normal del emisor
+        nor = emitter_normal / dr.norm(emitter_normal)
+
+        # Vector d desde el centro hasta cada punto p
+        d = p - emitter_pos
+
+        # Distancia (escalar) al plano según la normal
+        dist_plano = dr.dot(d, nor)
+
+        # 1. Máscara: verificar que el punto esté cerca del plano
+        belongs = dr.abs(dist_plano) < tolerance
+
+        # 2. Comprobar que la proyección en el plano caiga dentro del radio
+        d_plano = d - dist_plano * nor
+        belongs &= (dr.norm(d_plano) < emitter_radius)
+
+        # 3. Comprobar orientación de la normal de la superficie con la del emisor
+        dot_normales = dr.dot(n, nor)
+
+        # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
+        Le_cero = dr.zeros(type(emitter_radiance))  # Construye un "cero" del mismo tipo que Le
+        Le = dr.select(belongs, emitter_radiance, Le_cero)
+
+        # Cálculo de la PDF del emisor
+        emitter_area = dr.pi * emitter_radius ** 2
+        d_to_emitter = emitter_pos - prev_si.p
+        dist_sq = dr.squared_norm(d_to_emitter)
+        d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)
+        cos_theta = dr.maximum(dr.dot(-d_to_emitter, nor), 1e-4)  # Evitar divisiones por cero
+        emitter_pdf = dr.select((cos_theta > 1e-4) & ~prev_bsdf_delta,
+                                dr.maximum(dist_sq / (emitter_area * cos_theta), 1e-8),
+                                0.0)
+
+        # Cálculo del peso de Muestras Múltiples Independientes (MIS)
+        mis = mis_weight(prev_bsdf_pdf, emitter_pdf)
+
+        # Radiancia del emisor con MIS aplicado
+        radiancia = throughput * mis * Le
+
+        # ---------------------------
+        # Cálculo de la luz directa desde otras superficies
+        # ---------------------------
+        shadow_ray = mi.Ray3f(
+            o=prev_si.p,
+            d=d_to_emitter,
+            time=prev_si.time,
+            wavelengths=prev_si.wavelengths
+        )
+        shadow_hit = scene.ray_intersect(shadow_ray)
+        valid_light_mask = dr.neq(shadow_hit.t, dr.inf)
+
+        if dr.any(valid_light_mask):
+            bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_to_emitter), active=valid_light_mask)
+            indirect_radiance = throughput * bsdf_val * emitter_radiance * cos_theta * dr.rcp(dist_sq)
+            radiancia += dr.select(valid_light_mask, indirect_radiance, mi.Color3f(0.0))
+
+        return radiancia
+
     def get_emission_old_260225(self, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
         """
         Retorna la radiancia (Le) para cada interacción en 'si',
@@ -479,6 +547,94 @@ class MyPathTracer(mi.SamplingIntegrator):
         #c_mean = dr.sum(contrib) * (1.0 / float(len(contrib[0])))
 
         return contrib
+
+    def sample_custom_emitter_indirect(
+        self,
+        scene,
+        sampler,
+        throughput,
+        prev_bsdf_pdf,
+        si,
+        bsdf,
+        bsdf_ctx,
+        emitter_position,
+        emitter_normal,
+        emitter_radius,
+        emitter_radiance
+    ):
+        """
+        Genera muestras sobre un disco emisor, calcula la contribución
+        de luz indirecta a partir del segundo rebote.
+        """
+        # ---------------------------
+        # 1) Generar muestras en el disco emisor
+        # ---------------------------
+        uv = sampler.next_2d()
+        r   = emitter_radius * dr.sqrt(uv[0])
+        phi = 2 * dr.pi * uv[1]
+
+        x = r * dr.cos(phi)
+        y = r * dr.sin(phi)
+
+        local_point = mi.Vector3f(x, y, 0.0)
+        frame = mi.Frame3f(emitter_normal)
+        sampled_point = emitter_position + frame.to_world(local_point)
+
+        # ---------------------------
+        # 2) Construir rayos de sombra
+        # ---------------------------
+        to_emitter  = sampled_point - si.p
+        dist_sq     = dr.sum(to_emitter * to_emitter)
+        valid_mask  = dist_sq > 1e-1
+        dist        = dr.sqrt(dist_sq)
+        dir_to_emitter = to_emitter * dr.rcp(dist)
+
+        epsilon = dr.maximum(0.01, 1e-4 * dist)
+        shadow_ray = mi.Ray3f(
+            o           = si.p + dir_to_emitter * epsilon,
+            d           = dir_to_emitter,
+            time        = si.time,
+            wavelengths = si.wavelengths
+        )
+
+        # ---------------------------
+        # 3) Consultar visibilidad
+        # ---------------------------
+        shadow_hit    = scene.ray_intersect(shadow_ray)
+        blocked_mask  = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t < (dist - 0.001))
+
+        # ---------------------------
+        # 4) Iluminación indirecta (segundo rebote)
+        # ---------------------------
+        contrib = mi.Color3f(0.0)
+        if dr.any(blocked_mask):
+            secondary_dir = dr.normalize(emitter_position - shadow_hit.p)
+            secondary_ray = mi.Ray3f(
+                o           = shadow_hit.p + shadow_hit.n * epsilon,
+                d           = secondary_dir,
+                time        = shadow_hit.time,
+                wavelengths = shadow_hit.wavelengths
+            )
+
+            second_hit = scene.ray_intersect(secondary_ray)
+            secondary_dist_sq = dr.maximum(dr.sum(secondary_ray.d * secondary_ray.d), 1e-8)
+            safe_dist = dr.maximum(dr.sqrt(secondary_dist_sq), 1e-4)
+            second_blocked_mask = dr.neq(second_hit.t, dr.inf) & (second_hit.t < safe_dist - 0.001)
+
+            valid_secondary = blocked_mask & ~second_blocked_mask
+
+            if dr.any(valid_secondary):
+                second_cos_emitter = dr.maximum(dr.dot(emitter_normal, -secondary_ray.d), 1e-4)
+
+                bsdf_val, _ = bsdf.eval_pdf(bsdf_ctx, shadow_hit, shadow_hit.to_local(secondary_ray.d), active=valid_secondary)
+
+                contrib = throughput * bsdf_val * emitter_radiance * second_cos_emitter * dr.rcp(secondary_dist_sq)
+
+        valid_contrib = dr.isfinite(contrib) & (contrib >= 0)
+        contrib = dr.select(valid_contrib, contrib, mi.Color3f(0.0))
+
+        return contrib
+
 
     def emitter_hit_area_light_many_samples_old(
         self,
