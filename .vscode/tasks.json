@@ -1,0 +1,12 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+      {
+        "label": "source-init-script",
+        "type": "shell",
+        "command": "bash",
+        "args": ["-c", "source ./init/init.source"],
+        "problemMatcher": []
+      }
+    ]
+  }

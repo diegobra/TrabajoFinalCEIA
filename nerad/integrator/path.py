@@ -635,6 +635,61 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         return contrib
 
+    def get_direct_illumination(
+        self,
+        scene,
+        bsdf_ctx,
+        throughput,
+        prev_si,
+        prev_bsdf_pdf,
+        prev_bsdf_delta,
+        si,
+        emitter_pos,
+        emitter_normal,
+        emitter_radius,
+        emitter_radiance=mi.Color3f(12, 17, 4)
+    ):
+        """
+        Retorna la iluminación directa, considerando solo la contribución de emisores visibles.
+        """
+        p = si.p
+        n = si.n
+        nor = emitter_normal / dr.norm(emitter_normal)
+        d_to_emitter = emitter_pos - si.p
+        dist_sq = dr.squared_norm(d_to_emitter)
+        d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)
+        cos_theta = dr.maximum(dr.dot(-d_to_emitter, nor), 1e-4)
+
+        # Cálculo de la PDF del emisor
+        emitter_area = dr.pi * emitter_radius ** 2
+        emitter_pdf = dr.select((cos_theta > 1e-4) & ~prev_bsdf_delta,
+                                dr.maximum(dist_sq / (emitter_area * cos_theta), 1e-8),
+                                0.0)
+
+        # Cálculo del peso de Muestras Múltiples Independientes (MIS)
+        mis = mis_weight(prev_bsdf_pdf, emitter_pdf)
+
+        # ---------------------------
+        # Cálculo de la visibilidad
+        # ---------------------------
+        epsilon = dr.maximum(1e-4, 1e-4 * dr.sqrt(dist_sq))
+        shadow_ray = mi.Ray3f(
+            o=si.p + d_to_emitter * epsilon,  # Pequeño desplazamiento para evitar auto-intersección
+            d=d_to_emitter,
+            time=si.time,
+            wavelengths=si.wavelengths
+        )
+        shadow_hit = scene.ray_intersect(shadow_ray)
+        blocked_mask = (shadow_hit.t < dr.sqrt(dist_sq) - 1e-4)  # Detecta si hay obstrucción antes del emisor
+        valid_light_mask = ~blocked_mask  # Iluminación solo si no hay bloqueo
+
+        direct_illumination = mi.Color3f(0.0)
+        if dr.any(valid_light_mask):
+            bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_to_emitter), active=valid_light_mask)
+            direct_illumination = throughput * bsdf_val * emitter_radiance * cos_theta * dr.rcp(dist_sq)
+            direct_illumination = dr.select(valid_light_mask, direct_illumination, mi.Color3f(0.0))
+
+        return direct_illumination
 
     def emitter_hit_area_light_many_samples_old(
         self,

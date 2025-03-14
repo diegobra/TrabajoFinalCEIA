@@ -184,9 +184,13 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         E = self.get_direct_emission(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
+        #direct_ilumination = self.get_direct_illumination(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+        direct_ilumination = self.sample_custom_emitter(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
+                                                                    dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
+
         if self.return_only_LHS:
            mask = valid_ray | (active & si.is_valid())
-           LHS = dr.select(mask, E + LHS, 0)
+           LHS = dr.select(mask, E + direct_ilumination + LHS, 0)
            zero_vec = LHS*0
            return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
 
@@ -276,8 +280,9 @@ class NeradEmittersIndirect(Nerad, nn.Module):
             validity = dr.select(valid_ray, mi.Float(1), mi.Float(0))
             valid_ray = dr.block_sum(validity, self.m)>0
 
-        aov = dr.select(valid_ray, E + LHS, 0)
-        rgb = dr.select(valid_ray, E + RHS, 0)
+        aov = dr.select(valid_ray, E + direct_ilumination + LHS, 0)
+        #aov = dr.select(valid_ray, direct_ilumination, 0)
+        rgb = dr.select(valid_ray, E + direct_ilumination + RHS, 0)
 
         residual = dr.select(valid_ray, self.residual_function.compute_loss(LHS, RHS), 0)
 

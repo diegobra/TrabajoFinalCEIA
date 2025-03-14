@@ -1,0 +1,95 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Debug watchdog cbox",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/watchdog.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--max_retries", "120", "--",
+                "out_root=output/nerad",
+                "saving=[latest]",
+                "batch_size=32768",
+                "learning_rate=0.0005",
+                "rendering.spp=64",
+                "validation.image.step_size=1000",
+                "validation.image.first_step=true",
+                "saving.latest.step_size=1000",
+                "n_steps=30000",
+                "lr_decay_start=10000",
+                "lr_decay_rate=0.35",
+                "lr_decay_steps=10000",
+                "lr_decay_min_rate=0.01",
+                "dataset.scene=data/NeRad_paper_scenes/cornell-box/scene.xml",
+                "name=cbox"],
+            "preLaunchTask": "source-init-script"
+        },
+        {
+            "name": "Debug watchdog veach_ajar_mit",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/watchdog.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--max_retries", "120", "--",
+                "out_root=output/nerad",
+                "saving=[latest]",
+                "batch_size=32768",
+                "learning_rate=0.0005",
+                "rendering.spp=64",
+                "validation.image.step_size=1000",
+                "validation.image.first_step=true",
+                "saving.latest.step_size=1000",
+                "n_steps=30000",
+                "lr_decay_start=10000",
+                "lr_decay_rate=0.35",
+                "lr_decay_steps=10000",
+                "lr_decay_min_rate=0.01",
+                "dataset.scene=data/NeRad_paper_scenes/veach_ajar_mit/scene.xml",
+                "name=veach_ajar_mit",
+                "rendering=nerad_specular"],
+            "preLaunchTask": "source-init-script"
+        },
+        {
+            "name": "Debug Test",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test.py",
+            "console": "integratedTerminal",
+            "args": [
+                "test_rendering.image.spp=1",
+                "test_rendering.image.width=512",
+                "blocksize=128",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-09-18-26-09-cbox rnd_emitters_completo",
+            ]
+        },
+        {
+            "name": "Debug test_interactive",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_interactive.py",
+            "console": "integratedTerminal",
+            "args": [
+                "test_rendering.image.spp=1",
+                "test_rendering.image.width=512",
+                "blocksize=512",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-09-18-26-09-cbox rnd_emitters_completo",
+            ]
+        },
+        {
+            "name": "Debug test_interactive indirect",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_interactive.py",
+            "console": "integratedTerminal",
+            "args": [
+                "test_rendering.image.spp=16",
+                "test_rendering.image.width=512",
+                "blocksize=128",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-13-18-43-10-cbox_completo_indir_y_dir",
+            ]
+        }
+    ]
+}
