@@ -1,8 +1,6 @@
 import drjit as dr
 import mitsuba as mi
 
-import utils_diego as diego
-
 import numpy as np
 
 class ShapeSampler():

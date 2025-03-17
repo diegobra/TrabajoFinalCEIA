@@ -181,7 +181,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #E = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        E = self.get_direct_emission(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+        E = self.emitter_hit_indirect(scene, bsdf_ctx, sampler, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         #direct_ilumination = self.get_direct_illumination(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
@@ -217,8 +217,8 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         active_next = si.is_valid() # Tamaño 32768*32
 
         #em_sample_result = self.sample_emitter(scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next)
-        em_sample_result = self.sample_custom_emitter_indirect(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
-                                                                    dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
+        #em_sample_result = self.sample_custom_emitter_indirect(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
+        #                                                            dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
 
         # ------------------ Detached BSDF sampling -------------------
 
@@ -260,7 +260,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         # ---------------------- Direct emission ----------------------
 
         #bsdf_sample_result = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        bsdf_sample_result = self.get_direct_emission(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+        bsdf_sample_result = self.emitter_hit_indirect(scene, bsdf_ctx, sampler, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                                dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         # ---------------------- Eval RHS ----------------------
@@ -272,7 +272,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
         #RHS = RHS_net * throughput + em_sample_result
-        RHS = RHS_net * throughput + em_sample_result + bsdf_sample_result
+        RHS = RHS_net * throughput + bsdf_sample_result
 
         # ---------------------- Deal with repeat (if any) ----------------------
         if m > 1:
@@ -280,9 +280,13 @@ class NeradEmittersIndirect(Nerad, nn.Module):
             validity = dr.select(valid_ray, mi.Float(1), mi.Float(0))
             valid_ray = dr.block_sum(validity, self.m)>0
 
-        aov = dr.select(valid_ray, E + direct_ilumination + LHS, 0)
-        #aov = dr.select(valid_ray, direct_ilumination, 0)
-        rgb = dr.select(valid_ray, E + direct_ilumination + RHS, 0)
+        #aov = dr.select(valid_ray, E + direct_ilumination + LHS, 0)
+        #rgb = dr.select(valid_ray, E + direct_ilumination + RHS, 0)
+
+        aov = dr.select(valid_ray, E + bsdf_sample_result, 0)
+
+        #aov = dr.select(valid_ray, E + LHS, 0)
+        rgb = dr.select(valid_ray, E + direct_ilumination + LHS, 0)
 
         residual = dr.select(valid_ray, self.residual_function.compute_loss(LHS, RHS), 0)
 
