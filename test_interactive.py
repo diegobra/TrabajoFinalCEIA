@@ -107,7 +107,7 @@ def on_mouse_click(event, x, y, flags, param):
     """
     if event == cv2.EVENT_LBUTTONDOWN:
         scene, sensor, img_width, img_height, test_integrators, parm_img_clicked = param
-        print(f"🖱 Click en imagen en ({x}, {y})")
+        print(f"Click en imagen en ({x}, {y})")
 
         # Obtener intersección
         position, normal = get_intersection(scene, sensor, x, y, img_width, img_height)
@@ -174,8 +174,8 @@ def interactive_render(cfg, scene, transforms, images, test_integrators, out_roo
             break
         elif key == 83 or key == 81:  # Flecha derecha o flecha izquierda
 
-            # Ángulo de rotación (positivo o negativo)
-            theta = -0.5 * np.pi / 180 if key == 83 else 0.5 * np.pi / 180
+            # Ángulo de rotación en radianes (positivo o negativo)
+            theta = -2.0 * np.pi / 180 if key == 83 else 2.0 * np.pi / 180
 
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
@@ -183,23 +183,30 @@ def interactive_render(cfg, scene, transforms, images, test_integrators, out_roo
             # Obtener la matriz de transformación actual
             to_world = np.array(transforms['0']['to_world'])
 
-            # Extraer el eje Y de la cámara (segunda columna de la matriz to_world)
-            camera_y = to_world[:3, 1]  # Eje Y de la cámara
+            # Extraer la posición de la cámara (última columna de la matriz)
+            camera_pos = to_world[:3, 3]
 
-            # Construir matriz de rotación en torno a ese eje usando la fórmula de Rodrigues
-            K = np.array([
-                [0, -camera_y[2], camera_y[1]],
-                [camera_y[2], 0, -camera_y[0]],
-                [-camera_y[1], camera_y[0], 0]
+            # Definir el punto alrededor del cual rotará la cámara (centro de la escena)
+            center_of_rotation = np.array([0, 0, 0])  # Modificar si el centro de la escena es otro
+
+            # Calcular el vector desde el centro de la escena a la cámara
+            camera_offset = camera_pos - center_of_rotation
+
+            # Aplicar la rotación alrededor del eje Y global
+            R_y = np.array([
+                [cos_t,  0, sin_t],
+                [0,      1, 0    ],
+                [-sin_t, 0, cos_t]
             ])
 
-            I = np.eye(3)
-            R_local_y = I + sin_t * K + (1 - cos_t) * (K @ K)
+            # Rotar solo la posición de la cámara en torno al centro de la escena
+            new_camera_offset = R_y @ camera_offset
+            new_camera_pos = center_of_rotation + new_camera_offset
 
-            # Aplicar la rotación a los ejes de la cámara
-            to_world[:3, :3] = R_local_y @ to_world[:3, :3]  # Rotar solo la orientación
+            # Actualizar solo la posición en la matriz de transformación
+            to_world[:3, 3] = new_camera_pos
 
-            # Guardar la nueva transformación
+            # Guardar la nueva transformación sin cambiar la orientación
             transforms['0']['to_world'] = to_world.tolist()
 
             recalculate_image = True

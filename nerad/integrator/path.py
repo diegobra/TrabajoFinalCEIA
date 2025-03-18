@@ -302,24 +302,21 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         sampled_emitter_pos = self.sample_emitter_point(sampler, emitter_pos, emitter_normal, emitter_radius)
 
-        # Normalizamos la normal del emisor
-        nor = emitter_normal / dr.norm(emitter_normal)
-
         # Vector d desde el centro hasta cada punto p
         d = p - sampled_emitter_pos
 
         # Distancia (escalar) al plano según la normal
-        dist_plano = dr.dot(d, nor)
+        dist_plano = dr.dot(d, emitter_normal)
 
         # 1. Máscara: verificar que el punto esté cerca del plano
         belongs = dr.abs(dist_plano) < tolerance
 
         # 2. Comprobar que la proyección en el plano caiga dentro del radio
-        d_plano = d - dist_plano * nor
+        d_plano = d - dist_plano * emitter_normal
         belongs &= (dr.norm(d_plano) < emitter_radius)
 
         # 3. Comprobar orientación de la normal de la superficie con la del emisor
-        dot_normales = dr.dot(n, nor)
+        dot_normales = dr.dot(n, emitter_normal)
 
         # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
         Le_cero = dr.zeros(type(emitter_radiance))  # Construye un "cero" del mismo tipo que Le
@@ -329,10 +326,33 @@ class MyPathTracer(mi.SamplingIntegrator):
         emitter_area = dr.pi * emitter_radius ** 2
         d_to_emitter = sampled_emitter_pos - prev_si.p
         dist_sq = dr.squared_norm(d_to_emitter)
-        d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)
-        cos_theta = dr.maximum(dr.dot(-d_to_emitter, nor), 1e-4)  # Evitar divisiones por cero
-        emitter_pdf = dr.select((cos_theta > 1e-4) & ~prev_bsdf_delta,
-                                dr.maximum(dist_sq / (emitter_area * cos_theta), 1e-8),
+        dist_prevsi_to_emitter = dr.norm(d_to_emitter)
+        d_to_emitter = d_to_emitter / dist_prevsi_to_emitter
+
+        #belongs &= dr.dot(-d_to_emitter, emitter_normal) > 0
+
+        cos_theta_emitter = dr.maximum(dr.dot(-d_to_emitter, emitter_normal), 1e-4)
+
+        prev_si_normal = prev_si.n
+        mask = (dr.dot(prev_si_normal, d_to_emitter) < 0)
+        prev_si_normal = dr.select(mask, -prev_si_normal, prev_si_normal)
+
+        cos_theta_prev = dr.maximum(dr.dot(d_to_emitter, prev_si_normal), 1e-4)
+
+        d_si_to_prevsi = prev_si.p - si.p
+        d_si_to_prevsi = d_si_to_prevsi / (dr.norm(d_si_to_prevsi) + 0.01)
+
+        si_normal = si.n
+        mask = dr.dot(si_normal, d_si_to_prevsi) < 0
+        si_normal = dr.select(mask, -si_normal, si_normal)
+
+        # Cálculo de cosenos correctos
+
+        cos_theta_si = dr.maximum(dr.dot(d_si_to_prevsi, si_normal), 1e-4)
+
+        cos_theta = dr.maximum(dr.dot(-d_to_emitter, emitter_normal), 1e-4)  # Evitar divisiones por cero
+        emitter_pdf = dr.select((cos_theta_emitter > 1e-4) & ~prev_bsdf_delta,
+                                dr.maximum(dist_sq / (emitter_area * cos_theta_emitter), 1e-8),
                                 0.0)
 
         # Cálculo del peso de Muestras Múltiples Independientes (MIS)
@@ -344,7 +364,7 @@ class MyPathTracer(mi.SamplingIntegrator):
         # ---------------------------
         # Cálculo de la luz directa desde otras superficies
         # ---------------------------
-        epsilon = dr.maximum(1e-3, 1e-4 * dr.sqrt(dist_sq))
+        epsilon = dr.maximum(1e-4, 1e-4 * dist_prevsi_to_emitter)
         shadow_ray = mi.Ray3f(
             o=prev_si.p + epsilon * d_to_emitter,
             d=d_to_emitter,
@@ -353,13 +373,28 @@ class MyPathTracer(mi.SamplingIntegrator):
         )
         shadow_hit = scene.ray_intersect(shadow_ray)
         #valid_light_mask = dr.neq(shadow_hit.t, dr.inf)
-        valid_light_mask = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t > dr.sqrt(dist_sq) - 0.1)
+        valid_light_mask = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t >= (dist_prevsi_to_emitter - 0.1)) & (dr.dot(-d_to_emitter, emitter_normal) > 0)
+
+        # floor_mask = si.p.y < 0.5
+
+        # debug_mask = floor_mask & ~valid_light_mask
+        # # O si quieres inspeccionar tanto los que pasan como los que no pasan:
+        # # debug_mask = floor_mask
+
+        # # Imprimimos la distancia de shadow_hit, la dist al emisor y el dot con la normal
+        # print("debug: shadow_hit.t={}, dist_emit={}, dot={}, val_mask={}, floor_mask={}",
+        #         shadow_hit.t[debug_mask],
+        #         dist_prevsi_to_emitter[debug_mask],
+        #         dr.dot(-d_to_emitter, emitter_normal)[debug_mask],
+        #         valid_light_mask[debug_mask],
+        #         floor_mask[debug_mask])
 
         if dr.any(valid_light_mask):
-            bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_to_emitter), active=valid_light_mask)
+            bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_si_to_prevsi), active=valid_light_mask)
             #bsdf_val = prev_si.bsdf().eval(bsdf_ctx, prev_si, prev_si.to_local(d_to_emitter), active=valid_light_mask)
-            indirect_radiance = throughput * bsdf_val * emitter_radiance * cos_theta * dr.rcp(dist_sq)
+            indirect_radiance = throughput * bsdf_val * emitter_radiance * cos_theta_prev * cos_theta_si * dr.rcp(dist_sq)
             radiancia += dr.select(valid_light_mask, indirect_radiance, mi.Color3f(0.0))
+            #radiancia = dr.select(valid_light_mask, mi.Color3f(70,0,0), mi.Color3f(0.0))
 
         return radiancia
 

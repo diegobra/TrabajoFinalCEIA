@@ -105,9 +105,15 @@ class HighQuality(mi.SamplingIntegrator):
                 # emitter_radius = mi.Float(0.10)
                 # emitter_radiance = mi.Color3f(17.,12.,4.)
 
-                # Luz del techo
-                emitter_pos = mi.Point3f(0.0, 2.0, -0.03)
-                emitter_normal = mi.Point3f(0.0, -1.0, 0.0)
+                # # Luz del techo
+                # emitter_pos = mi.Point3f(0.0, 2.0, -0.03)
+                # emitter_normal = mi.Point3f(0.0, -1.0, 0.0)
+                # emitter_radius = mi.Float(0.10)
+                # emitter_radiance = mi.Color3f(17., 12., 4.)
+
+                # Luz encima de cubo grande
+                emitter_pos = mi.Point3f(-0.3318, 1.2000, -0.3061)
+                emitter_normal = mi.Point3f(0.0, 1.0, 0.0)
                 emitter_radius = mi.Float(0.10)
                 emitter_radiance = mi.Color3f(17., 12., 4.)
 
