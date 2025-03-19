@@ -89,6 +89,20 @@
                 "test_rendering.image.width=512",
                 "blocksize=128",
                 "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-13-18-43-10-cbox_completo_indir_y_dir",
+                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-18-20-41-28-cbox",
+            ]
+        },
+        {
+            "name": "Debug test_interactive nerad_original",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_interactive.py",
+            "console": "integratedTerminal",
+            "args": [
+                "test_rendering.image.spp=16",
+                "test_rendering.image.width=512",
+                "blocksize=128",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-16-19-06-37-cbox original",
             ]
         }
     ]
