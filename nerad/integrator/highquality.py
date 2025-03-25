@@ -117,6 +117,12 @@ class HighQuality(mi.SamplingIntegrator):
                 # emitter_radius = mi.Float(0.10)
                 # emitter_radiance = mi.Color3f(17., 12., 4.)
 
+                # # Luz livingroom
+                # emitter_pos = mi.Point3f(-2.5709776878356934, 2.722001314163208, -1.4513362646102905)
+                # emitter_normal = mi.Point3f(0.0, -1.0, 0.0)
+                # emitter_radius = mi.Float(0.10)
+                # emitter_radiance = mi.Color3f(17., 12., 4.)
+
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)
         sensor.film().prepare(self.integrator.aov_names())

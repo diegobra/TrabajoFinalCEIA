@@ -187,8 +187,8 @@ class NeradEmittersIndirect(Nerad, nn.Module):
                                dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
 
         #direct_ilumination = self.get_direct_illumination(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
-        direct_ilumination = self.sample_custom_emitter(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
-                                                                    dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
+        #direct_ilumination = self.sample_custom_emitter(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
+        #                                                            dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
 
         if self.return_only_LHS:
            mask = valid_ray | (active & si.is_valid())
