@@ -27,6 +27,31 @@
             "preLaunchTask": "source-init-script"
         },
         {
+            "name": "Debug watchdog living-room",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/watchdog.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--max_retries", "120", "--",
+                "out_root=output/nerad",
+                "saving=[latest]",
+                "batch_size=32768",
+                "learning_rate=0.0005",
+                "rendering.spp=64",
+                "validation.image.step_size=1000",
+                "validation.image.first_step=true",
+                "saving.latest.step_size=1000",
+                "n_steps=30000",
+                "lr_decay_start=10000",
+                "lr_decay_rate=0.35",
+                "lr_decay_steps=10000",
+                "lr_decay_min_rate=0.01",
+                "dataset.scene=data/NeRad_paper_scenes/living_room/scene.xml",
+                "name=livingroom"],
+            "preLaunchTask": "source-init-script"
+        },
+        {
             "name": "Debug watchdog veach_ajar_mit",
             "type": "debugpy",
             "request": "launch",
@@ -88,8 +113,37 @@
                 "test_rendering.image.spp=16",
                 "test_rendering.image.width=512",
                 "blocksize=128",
-                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-13-18-43-10-cbox_completo_indir_y_dir",
-                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-18-20-41-28-cbox",
+                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-13-18-43-10-cbox_completo_indir_y_dir",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-18-21-57-45-cbox completo_indirect",
+            ]
+        },
+        {
+            "name": "Debug test_interactive livingroom",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_interactive.py",
+            "console": "integratedTerminal",
+            "args": [
+                "test_rendering.image.spp=1",
+                "test_rendering.image.width=512",
+                "blocksize=512",
+                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-13-18-43-10-cbox_completo_indir_y_dir",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-19-23-17-08-livingroom",
+            ]
+        },
+        {
+            "name": "Debug test_interactive cbox glossy",
+            "type": "python",
+            "request": "launch",
+            "program": "${workspaceFolder}/test_interactive.py",
+            "console": "integratedTerminal",
+            "args": [
+                "test_rendering.image.spp=1",
+                "test_rendering.image.width=512",
+                "blocksize=512",
+                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-23-13-37-18-cbox",
+                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-24-17-39-54-cbox glossy_left_short",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-24-20-11-08-cbox glossy 1emitter",
             ]
         },
         {
