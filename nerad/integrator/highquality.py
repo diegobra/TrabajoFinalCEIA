@@ -72,7 +72,8 @@ class HighQuality(mi.SamplingIntegrator):
                seed: int = 0,
                spp: int = 0,
                develop: bool = True,
-               evaluate: bool = True) -> mi.TensorXf:
+               evaluate: bool = True,
+               weighted_sampling = True) -> mi.TensorXf:
 
         """
         This method is another implementation of method render() in mitsuba/src/python/python/ad/common.py
@@ -128,6 +129,16 @@ class HighQuality(mi.SamplingIntegrator):
         sensor.film().prepare(self.integrator.aov_names())
         has_aov = len(self.integrator.aov_names())>0
 
+        direct_light_mask = self.compute_direct_light_mask(scene, sensor, self.integrator, spp, emitter_pos, emitter_normal, emitter_radius)
+
+        height, width, _ = direct_light_mask.shape
+
+        bitmap = mi.Bitmap(direct_light_mask, pixel_format=mi.Bitmap.PixelFormat.Y)
+        bitmap = bitmap.convert(component_format=mi.Struct.Type.UInt8)
+        bitmap.write("direct_light_mask.png")
+
+
+
         for i in tqdm(range(spiral.block_count())):
             block_offset, block_size, block_id = spiral.next_block()
             # Prepare an ImageBlock as specified by the film and block size
@@ -143,7 +154,12 @@ class HighQuality(mi.SamplingIntegrator):
                     seed=(seed+1)*block_id,
                     spp=spp)
                 # Generate a set of rays starting at the sensor
-                ray, weight, pos = self.sample_rays(scene, sensor, sampler, block)
+                if weighted_sampling:
+                    ray, weight, pos, keep = self.sample_rays_weighted(scene, sensor, sampler, block, direct_light_mask)
+                else:
+                    keep = mi.Bool(True)
+                    ray, weight, pos = self.sample_rays(scene, sensor, sampler, block)
+
                 # Launch the Monte Carlo sampling process in primal mode
                 if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
                     L, valid, _ = self.integrator.sample(
@@ -155,7 +171,7 @@ class HighQuality(mi.SamplingIntegrator):
                         δL=None,
                         state_in=None,
                         reparam=None,
-                        active=mi.Bool(True),
+                        active=keep,
                         emitter_pos = emitter_pos,
                         emitter_normal = emitter_normal,
                         emitter_radius = emitter_radius,
@@ -284,6 +300,109 @@ class HighQuality(mi.SamplingIntegrator):
         splatting_pos = mi.Vector2f(pos) if rfilter.is_box_filter() else pos_f
         return ray, weight, splatting_pos
 
+    def sample_rays_weighted(
+        self,
+        scene: mi.Scene,
+        sensor: mi.Sensor,
+        sampler: mi.Sampler,
+        block: mi.ImageBlock,
+        direct_light_mask: mi.TensorXf
+    ) -> Tuple[mi.RayDifferential3f, mi.Spectrum, mi.Vector2f, mi.Float, mi.Mask]:
+
+        block_size = block.size()
+        rfilter = sensor.film().rfilter()
+        border_size = rfilter.border_size()
+
+        if sensor.film().sample_border():
+            block_size += 2 * border_size
+            raise NotImplementedError()
+
+        # Parámetros adaptativos
+        spp_base = 1
+        spp_max = 16
+
+        # Total de muestras a generar
+        total_samples = dr.prod(block_size) * spp_max
+        idx = dr.arange(mi.UInt32, total_samples)
+
+        # Índices por píxel y muestra dentro del píxel
+        pixel_index = idx // spp_max
+        spp_index = idx % spp_max
+
+        # Posiciones 2D dentro del bloque
+        px = pixel_index % block_size.x
+        py = pixel_index // block_size.x
+
+        # Posiciones absolutas
+        x0, y0 = block.offset().x, block.offset().y
+        abs_px = px + x0
+        abs_py = py + y0
+
+        # Acceso a la máscara
+        mask_flat = dr.ravel(direct_light_mask)
+        mask_width = direct_light_mask.shape[1]
+        linear_idx = abs_py * mask_width + abs_px
+        mask_values = dr.gather(mi.Float, mask_flat, linear_idx)
+
+        # spp dinámico por píxel
+        max_spp_for_pixel = dr.select(mask_values <= 0.0, spp_max, spp_base)
+        keep = spp_index < max_spp_for_pixel
+
+        # Posición del píxel en la imagen
+        pos = mi.Vector2i(px, py) + mi.Vector2i(block.offset())
+        pos_f = mi.Vector2f(pos) + sampler.next_2d()
+
+        # Reescalado a coordenadas [0, 1]^2
+        scale = dr.rcp(mi.ScalarVector2f(sensor.film().crop_size()))
+        pos_adjusted = pos_f * scale
+
+        # Apertura
+        aperture_sample = mi.Vector2f(0.0)
+        if sensor.needs_aperture_sample():
+            aperture_sample = sampler.next_2d()
+
+        # Tiempo
+        time = sensor.shutter_open()
+        if sensor.shutter_open_time() > 0:
+            time += sampler.next_1d() * sensor.shutter_open_time()
+
+        # Longitudes de onda
+        wavelength_sample = 0
+        if mi.is_spectral:
+            wavelength_sample = sampler.next_1d()
+
+        # Generación de rayos
+        with dr.resume_grad():
+            ray, weight = sensor.sample_ray_differential(
+                time=time,
+                sample1=wavelength_sample,
+                sample2=pos_adjusted,
+                sample3=aperture_sample
+            )
+
+        # Opción: filtrado de rayos no utilizados (opcional si se usa active=keep)
+        null_ray = mi.RayDifferential3f(
+            o = dr.zeros(mi.Point3f),
+            d = dr.zeros(mi.Vector3f),
+            time = mi.Float(0.0),
+            wavelengths = mi.Color0f(0.0)
+        )
+
+        ray.o = dr.select(keep, ray.o, null_ray.o)
+        ray.d = dr.select(keep, ray.d, null_ray.d)
+        ray.time = dr.select(keep, ray.time, null_ray.time)
+        ray.wavelengths = dr.select(keep, ray.wavelengths, null_ray.wavelengths)
+        ray.d_x = dr.select(keep, ray.d_x, null_ray.d_x)
+        ray.d_y = dr.select(keep, ray.d_y, null_ray.d_y)
+
+        weight = dr.select(keep, weight, 0.0)
+
+        # Posición de splatting
+        splatting_pos = mi.Vector2f(pos) if rfilter.is_box_filter() else pos_f
+
+        return ray, weight, splatting_pos, keep
+
+
     def to_string(self):
         return (
             "Highquality[\n"
@@ -323,3 +442,102 @@ class HighQuality(mi.SamplingIntegrator):
                 emitters.append((mi.Point3f(position), normal, radius, radiance))
 
         return emitters
+
+
+    def compute_direct_light_mask(self, scene, sensor, integrator, spp, emitter_pos, emitter_normal, emitter_radius):
+        spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0, 0), self.block_size)
+        #mask_image = dr.zeros(mi.Float, [sensor.film().crop_size().y, sensor.film().crop_size().x])  # 2D
+        height, width = sensor.film().crop_size()
+        #mask_image = mi.TensorXf(dr.zeros(mi.Float, height * width)).reshape([height, width])
+        mask_image = dr.zeros(mi.TensorXf, (height, width))
+
+        film_size = sensor.film().crop_size()
+        global_mask_block = mi.ImageBlock(
+            film_size,
+            mi.ScalarPoint2i(0),    # offset
+            1,                      # channel_count
+            sensor.film().rfilter() # reconstruction filter
+        )
+
+        global_mask_block.clear()
+
+        for i in range(spiral.block_count()):
+            block_offset, block_size, block_id = spiral.next_block()
+            block = sensor.film().create_block(block_size)
+            block.set_offset(block_offset)
+
+            # Crear un bloque local del mismo tamaño que el bloque actual
+            block_mask = mi.ImageBlock(
+                block_size,
+                block_offset,
+                1,
+                sensor.film().rfilter()
+            )
+
+            block_mask.set_offset(block_offset)
+
+            with dr.suspend_grad():
+                sampler, spp = self.prepare(
+                    sensor=sensor,
+                    block=block,
+                    seed=(1) * block_id,
+                    spp=spp)
+                ray, weight, pos = self.sample_rays(scene, sensor, sampler, block)
+                si = scene.ray_intersect(ray)
+
+                # Verificamos si el punto intersecado pertenece al emisor
+                sampled_emitter_pos = integrator.sample_emitter_point(sampler, emitter_pos, emitter_normal, emitter_radius)
+                nor = emitter_normal / dr.norm(emitter_normal)
+                d = si.p - sampled_emitter_pos
+                dist_plano = dr.dot(d, nor)
+                belongs = dr.abs(dist_plano) < 1e-1
+                d_plano = d - dist_plano * nor
+                belongs &= (dr.norm(d_plano) < emitter_radius)
+
+                # Si no está en el emisor, vemos si recibe luz directa
+                d_to_emitter = sampled_emitter_pos - si.p
+                dist_sq = dr.squared_norm(d_to_emitter)
+                dist_to_emitter = dr.norm(d_to_emitter)
+                d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)
+
+                si_normal = si.n
+                mask = (dr.dot(si_normal, d_to_emitter) < 0)
+                si_normal = dr.select(mask, -si_normal, si_normal)
+
+                epsilon = dr.maximum(1e-3, 1e-4 * d_to_emitter)
+                shadow_ray = mi.Ray3f(
+                    o=si.p + epsilon * si_normal,
+                    d=d_to_emitter,
+                    time=si.time,
+                    wavelengths=si.wavelengths
+                )
+                shadow_hit = scene.ray_intersect(shadow_ray)
+                sees_light = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t > dist_to_emitter - 0.01)  # No hay obstáculo => luz directa
+
+                has_direct_light = belongs | sees_light  # Unión: emisor o iluminación directa
+
+                # 1. Crear tensor plano y especificar forma explícita
+                mask_flat = mi.TensorXf(dr.zeros(mi.Float, height * width), shape=(height * width,))
+
+                # 2. Índices enteros
+                xi = mi.UInt32(dr.floor(pos.x)) + block_offset.x
+                yi = mi.UInt32(dr.floor(pos.y)) + block_offset.y
+
+                # 3. Índice lineal
+                index_flat = yi * width + xi
+
+                # 4. Valores a escribir: 1.0 si hay luz directa, 0.0 si no
+                values = dr.select(has_direct_light, 1.0, 0.0)
+
+                block_mask.put(pos, [values])
+                global_mask_block.put_block(block_mask)
+
+                # 5. Escribir con scatter
+                #dr.scatter(mask_flat.array, values, index_flat)
+
+                # 6. Reconstruir imagen 2D
+                #mask_image = mi.TensorXf(mask_flat.array, shape=(height, width))
+
+        mask_image = global_mask_block.tensor()
+
+        return mask_image

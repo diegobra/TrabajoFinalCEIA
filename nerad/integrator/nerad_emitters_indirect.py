@@ -146,6 +146,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
             si = scene.ray_intersect(ray,
                                      ray_flags=mi.RayFlags.All,
                                      coherent=dr.eq(depth, 0))
+            si = dr.select(active, si, dr.zeros(mi.SurfaceInteraction3f))
             bsdf = si.bsdf(ray)
 
         # En bsdf queda una descripción detallada de la BSDF para cada interacción (ej. tipo de reflexión)
@@ -289,7 +290,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         #aov = dr.select(valid_ray, E + bsdf_sample_result, 0)
 
-        aov = dr.select(valid_ray, LHS, 0)
+        aov = dr.select(valid_ray, E+LHS, 0)
         rgb = dr.select(valid_ray, RHS, 0)
 
         residual = dr.select(valid_ray, self.residual_function.compute_loss(LHS, RHS), 0)
