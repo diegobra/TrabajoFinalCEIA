@@ -8,6 +8,8 @@ from nerad.integrator import register_integrator
 from nerad.utils.render_utils import mis_weight
 from tqdm import tqdm
 
+import numpy as np
+
 @register_integrator("highquality")
 class HighQuality(mi.SamplingIntegrator):
     """
@@ -131,7 +133,9 @@ class HighQuality(mi.SamplingIntegrator):
 
         direct_light_mask = self.compute_direct_light_mask(scene, sensor, self.integrator, spp, emitter_pos, emitter_normal, emitter_radius)
 
-        height, width, _ = direct_light_mask.shape
+        direct_light_mask = self.extract_soft_shadow_edges_opencv(direct_light_mask)
+
+        height, width = direct_light_mask.shape
 
         bitmap = mi.Bitmap(direct_light_mask, pixel_format=mi.Bitmap.PixelFormat.Y)
         bitmap = bitmap.convert(component_format=mi.Struct.Type.UInt8)
@@ -155,7 +159,8 @@ class HighQuality(mi.SamplingIntegrator):
                     spp=spp)
                 # Generate a set of rays starting at the sensor
                 if weighted_sampling:
-                    ray, weight, pos, keep = self.sample_rays_weighted(scene, sensor, sampler, block, direct_light_mask)
+                    ray, weight, pos = self.sample_rays_weighted(scene, sensor, sampler, block, direct_light_mask)
+                    sampler.seed((seed+1)*block_id, len(ray.o[0]))
                 else:
                     keep = mi.Bool(True)
                     ray, weight, pos = self.sample_rays(scene, sensor, sampler, block)
@@ -171,7 +176,7 @@ class HighQuality(mi.SamplingIntegrator):
                         δL=None,
                         state_in=None,
                         reparam=None,
-                        active=keep,
+                        active=mi.Bool(True),
                         emitter_pos = emitter_pos,
                         emitter_normal = emitter_normal,
                         emitter_radius = emitter_radius,
@@ -300,7 +305,7 @@ class HighQuality(mi.SamplingIntegrator):
         splatting_pos = mi.Vector2f(pos) if rfilter.is_box_filter() else pos_f
         return ray, weight, splatting_pos
 
-    def sample_rays_weighted(
+    def sample_rays_weighted_old(
         self,
         scene: mi.Scene,
         sensor: mi.Sensor,
@@ -345,7 +350,7 @@ class HighQuality(mi.SamplingIntegrator):
         mask_values = dr.gather(mi.Float, mask_flat, linear_idx)
 
         # spp dinámico por píxel
-        max_spp_for_pixel = dr.select(mask_values <= 0.0, spp_max, spp_base)
+        max_spp_for_pixel = dr.select(mask_values > 0.0, spp_max, spp_base)
         keep = spp_index < max_spp_for_pixel
 
         # Posición del píxel en la imagen
@@ -402,6 +407,143 @@ class HighQuality(mi.SamplingIntegrator):
 
         return ray, weight, splatting_pos, keep
 
+    def sample_rays_weighted(
+        self,
+        scene: mi.Scene,
+        sensor: mi.Sensor,
+        sampler: mi.Sampler,
+        block: mi.ImageBlock,
+        direct_light_mask: mi.TensorXf
+    ) -> Tuple[mi.RayDifferential3f, mi.Spectrum, mi.Vector2f]:
+
+        block_size = block.size()
+        rfilter = sensor.film().rfilter()
+        border_size = rfilter.border_size()
+
+        if sensor.film().sample_border():
+            block_size += 2 * border_size
+            raise NotImplementedError()
+
+        # Parámetros adaptativos
+        spp_base = 1
+        spp_max = 16
+
+        # Total de muestras a generar
+        total_samples = dr.prod(block_size) * spp_max
+        idx = dr.arange(mi.UInt32, total_samples)
+
+        # Índices por píxel y muestra dentro del píxel
+        pixel_index = idx // spp_max
+        spp_index = idx % spp_max
+
+        # Posiciones 2D dentro del bloque
+        px = pixel_index % block_size.x
+        py = pixel_index // block_size.x
+
+        # Posiciones absolutas en la imagen
+        x0, y0 = block.offset().x, block.offset().y
+        abs_px = px + x0
+        abs_py = py + y0
+
+        # Acceso a la máscara aplanada
+        mask_flat = dr.ravel(direct_light_mask)
+        mask_width = direct_light_mask.shape[1]
+        linear_idx = abs_py * mask_width + abs_px
+        mask_values = dr.gather(mi.Float, mask_flat, linear_idx)
+
+        # spp dinámico por píxel
+        max_spp_for_pixel = dr.select(mask_values > 0.0, spp_max, spp_base)
+        keep = spp_index < max_spp_for_pixel
+
+        # Generar coordenadas de muestreo
+        pos = mi.Vector2i(px, py) + mi.Vector2i(block.offset())
+        pos_f = mi.Vector2f(pos) + sampler.next_2d()
+
+        # Reescalado a [0, 1]^2
+        scale = dr.rcp(mi.ScalarVector2f(sensor.film().crop_size()))
+        pos_adjusted = pos_f * scale
+
+        # Apertura
+        aperture_sample = mi.Vector2f(0.0)
+        if sensor.needs_aperture_sample():
+            aperture_sample = sampler.next_2d()
+
+        # Tiempo
+        time = sensor.shutter_open()
+        if sensor.shutter_open_time() > 0:
+            time += sampler.next_1d() * sensor.shutter_open_time()
+
+        # Longitudes de onda
+        wavelength_sample = 0
+        if mi.is_spectral:
+            wavelength_sample = sampler.next_1d()
+
+        # Generación de rayos
+        with dr.resume_grad():
+            ray, weight = sensor.sample_ray_differential(
+                time=time,
+                sample1=wavelength_sample,
+                sample2=pos_adjusted,
+                sample3=aperture_sample
+            )
+
+        # # Filtrado real: compactar usando keep
+        # keep_i = dr.select(keep, dr.scalar.UInt32(1), dr.scalar.UInt32(0))
+        # prefix = dr.prefix_sum(keep_i)
+        # count = dr.sum(keep_i)
+
+        # idx_all = dr.arange(mi.UInt32, len(keep))
+        # scatter_idx = prefix - 1
+        # mask_cond = dr.eq(keep_i, mi.UInt32(1))
+
+        # valid_idx_data = dr.gather(mi.UInt32, idx_all, mask=mask_cond)
+        # valid_scatter_idx = dr.gather(mi.UInt32, scatter_idx, mask_cond)
+
+        # valid_idx = dr.zeros(mi.UInt32, count[0])
+        # dr.scatter(valid_idx, valid_idx_data, valid_scatter_idx)
+
+        # # Aplicar filtrado
+        # ray_filtered    = dr.gather(mi.RayDifferential3f, ray, valid_idx)
+        # weight_filtered = dr.gather(type(weight), weight, valid_idx)
+        # pos_filtered    = dr.gather(type(pos_f), pos_f, valid_idx)
+
+        # === Filtrado real ===
+        keep_i = dr.select(keep, mi.UInt32(1), mi.UInt32(0))
+        prefix = dr.prefix_sum(keep_i)
+        count  = dr.sum(keep_i)
+
+        idx_all       = dr.arange(mi.UInt32, len(keep))
+        scatter_idx   = prefix
+        mask_cond     = keep  # <- ya es un Bool array
+
+        valid_idx_data    = dr.gather(type(idx_all), idx_all, idx_all, mask_cond)
+        valid_idx_data = self.unique_values_drjit(valid_idx_data)
+        valid_scatter_idx = dr.gather(type(scatter_idx), scatter_idx, idx_all, mask_cond)
+        valid_scatter_idx = self.unique_values_drjit(valid_scatter_idx)
+
+        valid_idx = dr.zeros(mi.UInt32, count[0])
+        dr.scatter(valid_idx, valid_idx_data, valid_scatter_idx)
+
+        # === Rayos finales ===
+        ray_filtered    = dr.gather(mi.RayDifferential3f, ray, valid_idx)
+        weight_filtered = dr.gather(type(weight), weight, valid_idx)
+        pos_filtered    = dr.gather(type(pos_f), pos_f, valid_idx)
+
+        return ray_filtered, weight_filtered, pos_filtered
+
+
+    def unique_values_drjit(self, drjit_array):
+
+        # Pasar a numpy (sin gradientes)
+        arr_np = np.array(drjit_array, dtype=np.uint32)
+
+        # Usar numpy para obtener los únicos
+        unique_np = np.unique(arr_np)
+
+        # Volver a drjit
+        unique = mi.UInt32(unique_np)
+
+        return unique
 
     def to_string(self):
         return (
@@ -541,3 +683,37 @@ class HighQuality(mi.SamplingIntegrator):
         mask_image = global_mask_block.tensor()
 
         return mask_image
+
+    def extract_soft_shadow_edges_opencv(self, direct_light_mask: mi.TensorXf, thickness: int = 20) -> mi.TensorXf:
+        """
+        A partir de una máscara binaria, genera una máscara de bordes
+        con cierto grosor usando OpenCV.
+
+        Args:
+            direct_light_mask: mi.TensorXf (valores 0 o 1)
+            thickness: número de píxeles de grosor del borde
+
+        Returns:
+            edge_mask: mi.TensorXf (valores 0 o 1), solo bordes ensanchados
+        """
+
+        import numpy as np
+        import cv2
+
+        # Convertir a array de numpy (uint8 para OpenCV)
+        mask_np = np.array(direct_light_mask.numpy(), dtype=np.uint8) * 255
+
+        # Detectar bordes con Canny (más robusto)
+        edges = cv2.Canny(mask_np, threshold1=50, threshold2=150)
+
+        # Engrosar bordes usando dilatación
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (thickness, thickness))
+        thick_edges = cv2.dilate(edges, kernel)
+
+        # Normalizar a rango [0, 1] y convertir a float32
+        thick_edges = (thick_edges > 0).astype(np.float32)
+
+        # Volver a TensorXf
+        edge_mask = mi.TensorXf(thick_edges)
+
+        return edge_mask

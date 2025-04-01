@@ -146,7 +146,6 @@ class NeradEmittersIndirect(Nerad, nn.Module):
             si = scene.ray_intersect(ray,
                                      ray_flags=mi.RayFlags.All,
                                      coherent=dr.eq(depth, 0))
-            si = dr.select(active, si, dr.zeros(mi.SurfaceInteraction3f))
             bsdf = si.bsdf(ray)
 
         # En bsdf queda una descripción detallada de la BSDF para cada interacción (ej. tipo de reflexión)
@@ -174,7 +173,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         pts, dirs, normals, albedo = self.extract_inputs(si)
 
         # Se evalúa la radiosidad para cada interacción en la red neuronal
-        LHS = self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+        LHS = dr.select(active & si.is_valid(), self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance), mi.Vector3f(0))
 
         # Se calcula LHS para los rayos válidos
         LHS = dr.select(active & si.is_valid(), throughput*LHS, mi.Vector3f(0))
@@ -298,7 +297,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         return rgb, valid_ray, [aov.x, aov.y, aov.z, dr.select(valid_ray, mi.Float(1), mi.Float(0)), residual.x, residual.y, residual.z]
 
-    def extract_inputs(self, si):
+    def extract_inputs_old(self, si):
         pts = si.p # Puntos de interacción con la escena
         dirs = si.to_world(si.wi)   # Direcciones para cada punto (se hace to_world para convertir desde el
                                     # sistema de referencia local a la superficie al sistema de referencia global)
@@ -307,6 +306,55 @@ class NeradEmittersIndirect(Nerad, nn.Module):
                                                                         # tomando en cuenta el rayo de salida
         albedo = dr.detach(self.get_albedo_detached(si)) # Medida de reflectancia difusa de la superficie en el punto de interacción
         return pts,dirs,normals,albedo
+
+    def extract_inputsgfds(self, si, active=None):
+        pts = si.p
+        dirs = si.to_world(si.wi)
+        normals = si.sh_frame.n
+        normals = dr.select(dr.dot(dirs, normals) < 0, -normals, normals)
+        albedo = dr.detach(self.get_albedo_detached(si))
+
+        if active is not None:
+            idx = dr.arange(mi.UInt32, len(active))
+            filtered_idx = idx[active]
+
+            prueba = self.gather_filtered(si, active)
+
+            pts     = dr.gather(type(pts), pts, filtered_idx)
+            dirs    = dr.gather(type(dirs), dirs, filtered_idx)
+            normals = dr.gather(type(normals), normals, filtered_idx)
+            albedo  = dr.gather(type(albedo), albedo, filtered_idx)
+
+        return pts, dirs, normals, albedo
+
+    def gather_filtered(self, array, mask):
+        # 1. Convertir mask a enteros
+        mask_i = dr.select(mask, dr.scalar.UInt32(1), dr.scalar.UInt32(0))
+
+        # 2. Prefix sum
+        prefix = dr.prefix_sum(mask_i)
+
+        # 3. Cantidad de válidos
+        count = dr.sum(mask_i)
+
+        # 4. Índices globales
+        idx_all = dr.arange(dr.scalar.UInt32, len(mask))
+        scatter_idx = prefix - 1
+
+        # 5. Filtrar sólo los datos válidos
+        mask_cond = dr.neq(mask_i, dr.scalar.UInt32(0))
+        valid_scatter_idx = dr.gather(type(scatter_idx), scatter_idx, mask_cond)
+        valid_idx_data = dr.gather(type(idx_all), idx_all, mask_cond)
+
+        # 6. Scatter a buffer final
+        valid_idx = dr.zeros(dr.scalar.UInt32, count)
+        dr.scatter(valid_idx, valid_idx_data, valid_scatter_idx)
+
+        # 7. Gather final
+        return dr.gather(type(array), array, valid_idx)
+
+
+
 
     def aov_names(self):
         return ["LHS.R", "LHS.G", "LHS.B", "LHS.a", "residual.x", "residual.y", "residual.z"]
