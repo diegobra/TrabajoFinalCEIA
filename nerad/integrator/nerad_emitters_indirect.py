@@ -146,6 +146,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
             si = scene.ray_intersect(ray,
                                      ray_flags=mi.RayFlags.All,
                                      coherent=dr.eq(depth, 0))
+
             bsdf = si.bsdf(ray)
 
         # En bsdf queda una descripción detallada de la BSDF para cada interacción (ej. tipo de reflexión)

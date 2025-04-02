@@ -132,7 +132,6 @@ class HighQuality(mi.SamplingIntegrator):
         has_aov = len(self.integrator.aov_names())>0
 
         direct_light_mask = self.compute_direct_light_mask(scene, sensor, self.integrator, spp, emitter_pos, emitter_normal, emitter_radius)
-
         direct_light_mask = self.extract_soft_shadow_edges_opencv(direct_light_mask)
 
         height, width = direct_light_mask.shape
@@ -162,7 +161,6 @@ class HighQuality(mi.SamplingIntegrator):
                     ray, weight, pos = self.sample_rays_weighted(scene, sensor, sampler, block, direct_light_mask)
                     sampler.seed((seed+1)*block_id, len(ray.o[0]))
                 else:
-                    keep = mi.Bool(True)
                     ray, weight, pos = self.sample_rays(scene, sensor, sampler, block)
 
                 # Launch the Monte Carlo sampling process in primal mode
@@ -487,26 +485,6 @@ class HighQuality(mi.SamplingIntegrator):
                 sample3=aperture_sample
             )
 
-        # # Filtrado real: compactar usando keep
-        # keep_i = dr.select(keep, dr.scalar.UInt32(1), dr.scalar.UInt32(0))
-        # prefix = dr.prefix_sum(keep_i)
-        # count = dr.sum(keep_i)
-
-        # idx_all = dr.arange(mi.UInt32, len(keep))
-        # scatter_idx = prefix - 1
-        # mask_cond = dr.eq(keep_i, mi.UInt32(1))
-
-        # valid_idx_data = dr.gather(mi.UInt32, idx_all, mask=mask_cond)
-        # valid_scatter_idx = dr.gather(mi.UInt32, scatter_idx, mask_cond)
-
-        # valid_idx = dr.zeros(mi.UInt32, count[0])
-        # dr.scatter(valid_idx, valid_idx_data, valid_scatter_idx)
-
-        # # Aplicar filtrado
-        # ray_filtered    = dr.gather(mi.RayDifferential3f, ray, valid_idx)
-        # weight_filtered = dr.gather(type(weight), weight, valid_idx)
-        # pos_filtered    = dr.gather(type(pos_f), pos_f, valid_idx)
-
         # === Filtrado real ===
         keep_i = dr.select(keep, mi.UInt32(1), mi.UInt32(0))
         prefix = dr.prefix_sum(keep_i)
@@ -654,31 +632,18 @@ class HighQuality(mi.SamplingIntegrator):
                     wavelengths=si.wavelengths
                 )
                 shadow_hit = scene.ray_intersect(shadow_ray)
-                sees_light = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t > dist_to_emitter - 0.01)  # No hay obstáculo => luz directa
+
+                cos_theta = dr.maximum(dr.dot(-d_to_emitter, nor), 1e-4)
+
+                sees_light = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t > dist_to_emitter - 0.01) & (cos_theta > 0.01)  # No hay obstáculo => luz directa
 
                 has_direct_light = belongs | sees_light  # Unión: emisor o iluminación directa
-
-                # 1. Crear tensor plano y especificar forma explícita
-                mask_flat = mi.TensorXf(dr.zeros(mi.Float, height * width), shape=(height * width,))
-
-                # 2. Índices enteros
-                xi = mi.UInt32(dr.floor(pos.x)) + block_offset.x
-                yi = mi.UInt32(dr.floor(pos.y)) + block_offset.y
-
-                # 3. Índice lineal
-                index_flat = yi * width + xi
 
                 # 4. Valores a escribir: 1.0 si hay luz directa, 0.0 si no
                 values = dr.select(has_direct_light, 1.0, 0.0)
 
                 block_mask.put(pos, [values])
                 global_mask_block.put_block(block_mask)
-
-                # 5. Escribir con scatter
-                #dr.scatter(mask_flat.array, values, index_flat)
-
-                # 6. Reconstruir imagen 2D
-                #mask_image = mi.TensorXf(mask_flat.array, shape=(height, width))
 
         mask_image = global_mask_block.tensor()
 
