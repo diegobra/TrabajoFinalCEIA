@@ -122,9 +122,9 @@ def on_mouse_click(event, x, y, flags, param):
             emitter_radius = mi.Float(0.10)
             emitter_radiance = mi.Color3f(17.,12.,4.)
 
-            test_integrators['image'].set_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+            test_integrators['image'].add_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
 
-def interactive_render(cfg, scene, transforms, images, test_integrators, out_root):
+def interactive_render(cfg_test_rendering, scene, transforms, images, test_integrators, out_root):
     """
     Muestra la imagen renderizada en un popup interactivo y permite navegar la cámara
     con las flechas del teclado en tiempo real.
@@ -143,7 +143,7 @@ def interactive_render(cfg, scene, transforms, images, test_integrators, out_roo
             torch.cuda.empty_cache()
 
             gt = {"image": images[view_idx] if images is not None else None}
-            rendering = cfg.test_rendering["image"]
+            rendering = cfg_test_rendering
             sensor = create_sensor(rendering.width, transforms[str(view_idx)])
 
             outputs = render_and_save_image(
@@ -324,8 +324,9 @@ def main(cfg: TestConfig = None):
         n_views = 1 if cfg.n_views <= 0 else cfg.n_views
         view_indices = list(range(n_views))
 
-    # Esto es nuevo. Agregar controles para su ejecución o quitarlo de test.py y ejecutarlo aparte. 090325
-    interactive_render(cfg, scene, transforms, images, test_integrators, out_root)
+    cfg_test_rendering = cfg.test_rendering["image"]
+    test_integrators['image'].set_custom_config(cfg_test_rendering)
+    interactive_render(cfg_test_rendering, scene, transforms, images, test_integrators, out_root)
 
 
 def merge_config(test: TestConfig, train: TrainConfig) -> TestConfig:

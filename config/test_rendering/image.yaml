@@ -3,3 +3,5 @@ image:
   width:
   height:
   post_init: {}
+  point_direct_light: false
+  weighted_sampling: false

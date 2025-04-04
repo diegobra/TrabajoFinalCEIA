@@ -291,13 +291,18 @@ class MyPathTracer(mi.SamplingIntegrator):
 
 
     def emitter_hit_indirect(self, sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
-                    emitter_pos, emitter_normal, emitter_radius,
-                    emitter_radiance=mi.Color3f(12, 17, 4), tolerance=1e-1):
+                    emitter_pos, emitter_normal, emitter_radius, emitter_radiance=mi.Color3f(12, 17, 4), point_direct_light=False,
+                    tolerance=1e-1):
         """
         Retorna la radiancia total directa, incluyendo la emisión del emisor y la luz directa desde otras superficies.
         """
 
-        sampled_emitter_pos = self.sample_emitter_point(sampler, emitter_pos, emitter_normal, emitter_radius)
+        if point_direct_light:
+            # Se asume que el emisor es puntual (para simplificaciones en las pruebas)
+            # En este caso, se utiliza el centro del círculo
+            sampled_emitter_pos = emitter_pos
+        else:
+            sampled_emitter_pos = self.sample_emitter_point(sampler, emitter_pos, emitter_normal, emitter_radius)
 
         # Normalizamos la normal del emisor
         nor = emitter_normal / dr.norm(emitter_normal)

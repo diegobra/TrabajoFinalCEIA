@@ -167,6 +167,8 @@
             "args": [
                 "test_rendering.image.spp=16",
                 "test_rendering.image.width=512",
+                "test_rendering.image.point_direct_light=false",
+                "test_rendering.image.weighted_sampling=true",
                 "blocksize=256",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-23-13-37-18-cbox",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-24-17-39-54-cbox glossy_left_short",
