@@ -6,6 +6,8 @@ from mytorch.utils.profiling_utils import counter_profiler
 from nerad.integrator import register_integrator
 from nerad.utils.render_utils import mis_weight
 
+import random
+
 
 @register_integrator("mypath")
 class MyPathTracer(mi.SamplingIntegrator):
@@ -268,11 +270,18 @@ class MyPathTracer(mi.SamplingIntegrator):
 
 
     # Sampleo de un punto en el disco del emisor
-    def sample_emitter_point(self, sampler, emitter_pos, emitter_normal, emitter_radius):
+    def sample_emitter_point(self, sampler, sel_emitter_pos, sel_emitter_normal, sel_emitter_radius):
         """Genera un punto aleatorio en un emisor circular"""
 
+        # selected_pos     = dr.gather(mi.Point3f, positions, index)
+        #     selected_normal  = dr.gather(mi.Vector3f, normals, index)
+        #     selected_radius  = dr.gather(mi.Float,    radii, index)
+        #     selected_radiance= dr.gather(mi.Color3f,  radiances, index)
+
+        # (emitter_pos, emitter_normal, emitter_radius, _) = emitter
+
         uv = sampler.next_2d()  # shape = [num_samples, 2]
-        r   = emitter_radius * dr.sqrt(uv[0])
+        r   = sel_emitter_radius * dr.sqrt(uv[0])
         phi = 2 * dr.pi * uv[1]
 
         x = r * dr.cos(phi)
@@ -282,16 +291,16 @@ class MyPathTracer(mi.SamplingIntegrator):
         local_point = mi.Vector3f(x, y, 0.0)  # shape = [num_samples, 3]
 
         # Construir un marco local a partir de la normal del emisor
-        frame = mi.Frame3f(emitter_normal)  # Se transmite con broadcast
+        frame = mi.Frame3f(sel_emitter_normal)  # Se transmite con broadcast
 
         # Pasar el punto local a coordenadas de mundo
-        sampled_point = emitter_pos + frame.to_world(local_point)
+        sampled_point = sel_emitter_pos + frame.to_world(local_point)
 
         return sampled_point
 
 
     def emitter_hit_indirect(self, sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
-                    emitter_pos, emitter_normal, emitter_radius, emitter_radiance=mi.Color3f(12, 17, 4), point_direct_light=False,
+                    emitters, point_direct_light=False,
                     tolerance=1e-1):
         """
         Retorna la radiancia total directa, incluyendo la emisión del emisor y la luz directa desde otras superficies.
@@ -300,12 +309,39 @@ class MyPathTracer(mi.SamplingIntegrator):
         if point_direct_light:
             # Se asume que el emisor es puntual (para simplificaciones en las pruebas)
             # En este caso, se utiliza el centro del círculo
-            sampled_emitter_pos = emitter_pos
+            (sampled_emitter_pos, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = random.choice(emitters)
         else:
-            sampled_emitter_pos = self.sample_emitter_point(sampler, emitter_pos, emitter_normal, emitter_radius)
+
+            if len(emitters) == 1:
+                (sampled_emitter_pos, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitters[0]
+                sampled_emitter_pos = self.sample_emitter_point(sampler, sampled_emitter_pos, sampled_emitter_normal, sampled_emitter_radius)
+            else:
+
+                sample = sampler.next_1d()
+                emitter_index = dr.floor(sample * len(emitters))
+                emitter_index = mi.UInt32(dr.clamp(emitter_index, 0, len(emitters) - 1))
+
+                positions, normals, radiuss, radiances = zip(*emitters)
+
+                positions_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in positions], dtype=np.float32))
+                normals_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in normals], dtype=np.float32))
+                radius_array = mi.Float(np.array([p[0] for p in radiuss], dtype=np.float32))
+                radiances_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in radiances], dtype=np.float32))
+
+                selected_pos     = dr.gather(mi.Point3f, positions_array, emitter_index)
+                selected_normal  = dr.gather(mi.Point3f, normals_array, emitter_index)
+                selected_radius  = dr.gather(mi.Float, radius_array, emitter_index)
+                selected_radiances  = dr.gather(mi.Point3f, radiances_array, emitter_index)
+
+                #emitter = random.choice(emitters)
+                #(_, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitter
+                sampled_emitter_pos = self.sample_emitter_point(sampler, selected_pos, selected_normal, selected_radius)
+                sampled_emitter_normal = selected_normal
+                sampled_emitter_radius = selected_radius
+                sampled_emitter_radiance = selected_radiances
 
         # Normalizamos la normal del emisor
-        nor = emitter_normal / dr.norm(emitter_normal)
+        nor = sampled_emitter_normal / dr.norm(sampled_emitter_normal)
 
         # Vector d desde el centro hasta cada punto p
         d = si.p - sampled_emitter_pos
@@ -318,17 +354,17 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         # 2. Comprobar que la proyección en el plano caiga dentro del radio
         d_plano = d - dist_plano * nor
-        belongs &= (dr.norm(d_plano) < emitter_radius)
+        belongs &= (dr.norm(d_plano) < sampled_emitter_radius)
 
         # 3. Comprobar orientación de la normal de la superficie con la del emisor
         #dot_normales = dr.dot(n, nor)
 
         # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
-        Le_cero = dr.zeros(type(emitter_radiance))  # Construye un "cero" del mismo tipo que Le
-        Le = dr.select(belongs, emitter_radiance, Le_cero)
+        Le_cero = dr.zeros(type(sampled_emitter_radiance))  # Construye un "cero" del mismo tipo que Le
+        Le = dr.select(belongs, sampled_emitter_radiance, Le_cero)
 
         # Cálculo de la PDF del emisor
-        emitter_area = dr.pi * emitter_radius ** 2
+        emitter_area = dr.pi * sampled_emitter_radius ** 2
         d_to_emitter = sampled_emitter_pos - si.p
         dist_sq = dr.squared_norm(d_to_emitter)
         dist_to_emitter = dr.norm(d_to_emitter)
@@ -364,7 +400,7 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         if dr.any(valid_light_mask):
             bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_to_emitter), active=True)
-            indirect_radiance = throughput * bsdf_val * emitter_radiance * cos_theta * dr.rcp(dist_sq)
+            indirect_radiance = throughput * bsdf_val * sampled_emitter_radiance * cos_theta * dr.rcp(dist_sq)
             #indirect_radiance = bsdf_val * emitter_radiance * cos_theta * dr.rcp(dist_sq)
             radiancia += dr.select(valid_light_mask, indirect_radiance, mi.Color3f(0.0))
 

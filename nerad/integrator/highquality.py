@@ -22,11 +22,16 @@ class HighQuality(mi.SamplingIntegrator):
         self.block_size = block_size
         self.integrator = integrator
         self.emitters_params = []
+        self.weighted_sampling = False
         self.point_direct_light = False
+        self.spp_network = 1
+        self.interactive_test = False
 
-    def set_custom_config(self, cfg_test_rendering):
+    def set_custom_config(self, cfg_test_rendering, interactive_test=False):
         self.point_direct_light = cfg_test_rendering.point_direct_light
         self.weighted_sampling = cfg_test_rendering.weighted_sampling
+        self.spp_network = cfg_test_rendering.spp_network
+        self.interactive_test = interactive_test
 
 
     def add_emitter(self, emitter_pos, emitter_normal, emitter_radius, emitter_radiance):
@@ -105,13 +110,13 @@ class HighQuality(mi.SamplingIntegrator):
                 # emitter_radius = mi.Float(0.10)
                 # emitter_radiance = mi.Color3f(17.,12.,4.)
 
-                # Luz derecha
-                emitter_pos = mi.Point3f(1., 1., -0.2)
-                emitter_normal = mi.Point3f(-1., 0. , 0.)
-                emitter_radius = mi.Float(0.10)
-                emitter_radiance = mi.Color3f(17.,12.,4.)
+                # # Luz derecha
+                # emitter_pos = mi.Point3f(1., 1., -0.2)
+                # emitter_normal = mi.Point3f(-1., 0. , 0.)
+                # emitter_radius = mi.Float(0.10)
+                # emitter_radiance = mi.Color3f(17.,12.,4.)
 
-                circular_emitters.append((emitter_pos, emitter_normal, emitter_radius, emitter_radiance))
+                # circular_emitters.append((emitter_pos, emitter_normal, emitter_radius, emitter_radiance))
 
                 # Luz del techo
                 emitter_pos = mi.Point3f(0.0, 2.0, -0.03)
@@ -138,12 +143,18 @@ class HighQuality(mi.SamplingIntegrator):
         sensor.film().prepare(self.integrator.aov_names())
         has_aov = len(self.integrator.aov_names())>0
 
-        direct_light_masks = self.compute_direct_light_masks(scene, sensor, self.integrator, spp, circular_emitters)
-        direct_light_masks = self.extract_soft_shadow_edges_opencv(direct_light_masks)
+        if self.interactive_test:
+            direct_light_masks = self.compute_direct_light_masks(scene, sensor, self.integrator, spp, circular_emitters)
+            direct_light_masks = self.extract_soft_shadow_edges_opencv(direct_light_masks)
 
-        bitmap = mi.Bitmap(direct_light_masks[0], pixel_format=mi.Bitmap.PixelFormat.Y)
-        bitmap = bitmap.convert(component_format=mi.Struct.Type.UInt8)
-        bitmap.write("direct_light_mask0.png")
+            # Se combinan las máscaras individuales por emisor
+            combined_mask = direct_light_masks[0]
+            for mask in direct_light_masks[1:]:
+                combined_mask = dr.maximum(combined_mask, mask)
+
+            bitmap = mi.Bitmap(combined_mask, pixel_format=mi.Bitmap.PixelFormat.Y)
+            bitmap = bitmap.convert(component_format=mi.Struct.Type.UInt8)
+            bitmap.write("combined_mask.png")
 
         for i in tqdm(range(spiral.block_count())):
             block_offset, block_size, block_id = spiral.next_block()
@@ -151,87 +162,172 @@ class HighQuality(mi.SamplingIntegrator):
             block_total = sensor.film().create_block(block_size)
             block_total.set_offset(block_offset)
 
-            for emitter, direct_light_mask in zip(circular_emitters, direct_light_masks):
+            # Disable derivatives in all of the following
+            with dr.suspend_grad():
 
-                # Disable derivatives in all of the following
-                with dr.suspend_grad():
+                if self.interactive_test:
                     # Prepare the film and sample generator for rendering
-                    sampler, spp = self.prepare(
+                    sampler_direct, _ = self.prepare(
                         sensor=sensor,
                         block=block_total,
                         seed=(seed+1)*block_id,
                         spp=spp)
+
                     # Generate a set of rays starting at the sensor
                     if self.weighted_sampling:
-                        ray, weight, pos = self.sample_rays_weighted(scene, sensor, sampler, block_total, direct_light_mask)
-                        sampler.seed((seed+1)*block_id, len(ray.o[0]))
+                        ray_direct, weight_direct, pos = self.sample_rays_weighted(scene, sensor, sampler_direct, block_total, combined_mask)
+                        sampler_direct.seed((seed+1)*block_id, len(ray_direct.o[0]))
                     else:
-                        ray, weight, pos = self.sample_rays(scene, sensor, sampler, block_total)
+                        ray_direct, weight_direct, pos = self.sample_rays(scene, sensor, sampler_direct, block_total)
 
                     # Launch the Monte Carlo sampling process in primal mode
                     if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
-                        L, valid, _ = self.integrator.sample(
+                        L_direct, valid_direct, _ = self.integrator.sample(
                             mode=dr.ADMode.Primal,
                             scene=scene,
-                            sampler=sampler,
-                            ray=ray,
+                            sampler=sampler_direct,
+                            ray=ray_direct,
                             depth=mi.UInt32(0),
                             δL=None,
                             state_in=None,
                             reparam=None,
                             active=mi.Bool(True),
-                            emitter_pos = emitter[0],
-                            emitter_normal = emitter[1],
-                            emitter_radius = emitter[2],
-                            emitter_radiance = emitter[3],
-                            point_direct_light = self.point_direct_light
+                            emitters = circular_emitters,
+                            point_direct_light = self.point_direct_light,
+                            return_only_direct_light=True
                         )
                     else:
-                        L, valid, aov = self.integrator.sample(
+                        L_direct, valid_direct, aov = self.integrator.sample(
                             scene,
-                            sampler,
-                            ray,
+                            sampler_direct,
+                            ray_direct,
                             None,
                             active = mi.Bool(True),
-                            emitter_pos = emitter[0],
-                            emitter_normal = emitter[1],
-                            emitter_radius = emitter[2],
-                            emitter_radiance = emitter[3],
-                            point_direct_light = self.point_direct_light)
+                            emitters = circular_emitters,
+                            point_direct_light = self.point_direct_light,
+                            return_only_direct_light=True)
 
-                    alpha = dr.select(valid, mi.Float(1), mi.Float(0))
+                    alpha_direct = dr.select(valid_direct, mi.Float(1), mi.Float(0))
 
-                    block_em = sensor.film().create_block(block_size)
-                    block_em.set_offset(block_offset)
+                    block_direct = sensor.film().create_block(block_size)
+                    block_direct.set_offset(block_offset)
 
                     # Accumulate into the image block
                     if has_aov:
                         #Assumption: weight is always [1.0, 1.0, 1.0]
-                        floatLs = [L[0], L[1], L[2], alpha, weight[0]]
+                        floatLs = [L_direct[0], L_direct[1], L_direct[2], alpha_direct, weight_direct[0]]
                         all_channels = floatLs + aov
-                        block_em.put(pos, all_channels)
+                        block_direct.put(pos, all_channels)
                         del aov
                     else:
-                        block_em.put(pos, ray.wavelengths, L * weight, alpha)
+                        block_direct.put(pos, ray_direct.wavelengths, L_direct * weight_direct, alpha_direct)
 
-                    block_total.put_block(block_em)
 
                     # Explicitly delete any remaining unused variables
-                    del ray, L, valid, alpha, weight
+                    del ray_direct, L_direct, valid_direct, alpha_direct, weight_direct
                     gc.collect()
 
-                    sampler.schedule_state()
-                    dr.eval(block_em.tensor())
+                # ---------- Iluminación indirecta (salida de red neuronal) ----------
+                block_indirect = sensor.film().create_block(block_size)
+                block_indirect.set_offset(block_offset)
 
-            # Perform the weight division and return an image tensor
-            sensor.film().put_block(block_total)
+                for idx, emitter in enumerate(circular_emitters):
+
+                    # Prepare the film and sample generator for rendering
+                    sampler_indirect, _ = self.prepare(
+                        sensor=sensor,
+                        block=block_total,
+                        seed=(seed + 1 + idx)*block_id,
+                        spp=self.spp_network)
+
+                    ray_indirect, weight_indirect, pos = self.sample_rays(scene, sensor, sampler_indirect, block_total)
+
+                    # Launch the Monte Carlo sampling process in primal mode
+                    if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
+                        L_indirect, valid_indirect, _ = self.integrator.sample(
+                            mode=dr.ADMode.Primal,
+                            scene=scene,
+                            sampler=sampler_indirect,
+                            ray=ray_indirect,
+                            depth=mi.UInt32(0),
+                            δL=None,
+                            state_in=None,
+                            reparam=None,
+                            active=mi.Bool(True),
+                            emitters = [emitter],
+                            point_direct_light = self.point_direct_light
+                        )
+                    else:
+                        L_indirect, valid_indirect, aov = self.integrator.sample(
+                            scene,
+                            sampler_indirect,
+                            ray_indirect,
+                            None,
+                            active = mi.Bool(True),
+                            emitters = [emitter],
+                            point_direct_light = self.point_direct_light)
+
+                    alpha_indirect = dr.select(valid_indirect, mi.Float(1), mi.Float(0))
+
+                    #L_indirect *= 1000 #spp/self.spp_network
+
+                    # Accumulate into the image block
+                    if has_aov:
+
+                        # Suponiendo que aov[0], [1], [2] son RGB
+                        rgb = [aov[0] * spp / 2*self.spp_network,  # o alguna escala deseada
+                            aov[1] * spp / 2*self.spp_network,
+                            aov[2] * spp / 2*self.spp_network]
+                        floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
+                        all_channels = floatLs + rgb + aov[3:]  # El resto de los AOV
+                        block_indirect.put(pos, all_channels)
+
+                        # #Assumption: weight is always [1.0, 1.0, 1.0]
+                        # floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
+                        # all_channels = floatLs + aov
+                        # block_indirect.put(pos, all_channels)
+                        del aov, rgb
+                    else:
+                        block_indirect.put(pos, ray_indirect.wavelengths, L_indirect * weight_indirect, alpha_indirect)
+
+                    del ray_indirect, L_indirect, valid_indirect, alpha_indirect, weight_indirect
+                    gc.collect()
+
+
+                # ---------- Combinación final ----------
+
+                if self.interactive_test:
+                    block_total.put_block(block_direct)
+                block_total.put_block(block_indirect)
+                sensor.film().put_block(block_total)
+
+                dr.eval(block_total.tensor())
+                #sampler_direct.schedule_state()
+
+                # # Accumulate into the image block
+                # if has_aov:
+                #     #Assumption: weight is always [1.0, 1.0, 1.0]
+                #     floatLs = [L_total[0], L_total[1], L_total[2], alpha, weight[0]]
+                #     all_channels = floatLs + aov
+                #     block_em.put(pos, all_channels)
+                #     del aov
+                # else:
+                #     block_em.put(pos, ray_direct.wavelengths, L_total * weight, alpha)
+
+                # block_total.put_block(block_em)
+
+                # # Explicitly delete any remaining unused variables
+                # del ray, L, valid, alpha, weight
+                # gc.collect()
+
+                # sampler_direct.schedule_state()
+                # dr.eval(block_em.tensor())
 
         primal_image = sensor.film().develop()
         dr.schedule(primal_image)
         if evaluate:
             dr.eval()
             dr.sync_thread()
-
 
         return primal_image
 
@@ -488,8 +584,10 @@ class HighQuality(mi.SamplingIntegrator):
 
         all_masks = []
 
-        for emitter_idx, (emitter_pos, emitter_normal, emitter_radius, _) in enumerate(emitter_list):
+        for emitter_idx, emitter in enumerate(emitter_list):
             print(f"Generando máscara para emisor {emitter_idx}...")
+
+            (emitter_pos, emitter_normal, emitter_radius, _) = emitter
 
             spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0, 0), self.block_size)
             film_size = sensor.film().crop_size()
@@ -524,7 +622,7 @@ class HighQuality(mi.SamplingIntegrator):
                     ray, weight, pos = self.sample_rays(scene, sensor, sampler, block)
                     si = scene.ray_intersect(ray)
 
-                    sampled_emitter_pos = integrator.sample_emitter_point(sampler, emitter_pos, emitter_normal, emitter_radius)
+                    sampled_emitter_pos = integrator.sample_emitter_point(sampler, emitter[0], emitter[1], emitter[2])
                     nor = emitter_normal / dr.norm(emitter_normal)
                     d = si.p - sampled_emitter_pos
                     dist_plano = dr.dot(d, nor)

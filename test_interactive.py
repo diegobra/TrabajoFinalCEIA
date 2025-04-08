@@ -325,7 +325,7 @@ def main(cfg: TestConfig = None):
         view_indices = list(range(n_views))
 
     cfg_test_rendering = cfg.test_rendering["image"]
-    test_integrators['image'].set_custom_config(cfg_test_rendering)
+    test_integrators['image'].set_custom_config(cfg_test_rendering, interactive_test=True)
     interactive_render(cfg_test_rendering, scene, transforms, images, test_integrators, out_root)
 
 

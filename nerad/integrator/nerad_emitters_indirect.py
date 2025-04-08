@@ -89,8 +89,10 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         #     self.emitter_radius_train = mi.Float(0.10)
         #     self.emitter_radiance_train = mi.Color3f(17., 12., 4.)
 
+        emitters_train = [(self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train)]
+
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
-                                self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train,
+                                emitters_train,
                                 sampler_m = self.residual_sampler_m)
         residual = mi.Color3f(aov[-3:])
         return residual
@@ -102,21 +104,14 @@ class NeradEmittersIndirect(Nerad, nn.Module):
                                         # Recibe SurfaceInteraction cuando está entrenando y Ray3f cuando rederiza la imagen
                medium: mi.Medium,
                active: mi.Bool,
-               emitter_pos,
-               emitter_normal,
-               emitter_radius,
-               emitter_radiance,
-               point_direct_light,
+               emitters,
+               point_direct_light=False,
+               return_only_direct_light=False,
                **kwargs):
 
         m = 1
 
-        # if emitter_pos is None:
-        #     # Luz derecha
-        #     self.emitter_pos_train = mi.Point3f(1., 1., -0.2)
-        #     self.emitter_normal_train = mi.Point3f(-1., 0. , 0.)
-        #     self.emitter_radius_train = mi.Float(0.30)
-
+        (emitter_pos, emitter_normal, emitter_radius, emitter_radiance) = emitters[0]
         sampler_m = kwargs.get("sampler_m", None)
         if sampler_m is not None:
             m = self.m # 32
@@ -150,6 +145,16 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
             bsdf = si.bsdf(ray)
 
+
+        if return_only_direct_light:
+            E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+                                dr.detach(si), emitters, point_direct_light=point_direct_light)
+
+            mask = valid_ray | (active & si.is_valid())
+            LHS = dr.select(mask, E, 0)
+            zero_vec = LHS*0
+            return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
+
         # En bsdf queda una descripción detallada de la BSDF para cada interacción (ej. tipo de reflexión)
         # Ej. para una interacción particular:
             # TwoSided[
@@ -182,15 +187,8 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         # ---------------------- Direct emission ----------------------
 
-        #E = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        # E = self.emitter_hit_indirect(scene, bsdf_ctx, sampler, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
-        #                        dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
         E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
-                               dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance, point_direct_light=point_direct_light)
-
-        #direct_ilumination = self.get_direct_illumination(scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
-        #direct_ilumination = self.sample_custom_emitter(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
-        #                                                            dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
+                               dr.detach(si), emitters, point_direct_light=point_direct_light)
 
         if self.return_only_LHS:
            mask = valid_ray | (active & si.is_valid())
@@ -219,10 +217,6 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         # ---------------------- Emitter sampling ----------------------
 
         active_next = si.is_valid() # Tamaño 32768*32
-
-        #em_sample_result = self.sample_emitter(scene, sampler, throughput, bsdf_ctx, si, bsdf, active_next)
-        #em_sample_result = self.sample_custom_emitter_indirect(scene, sampler, throughput, prev_bsdf_pdf, dr.detach(si), bsdf, bsdf_ctx,
-        #                                                            dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), dr.detach(emitter_radiance))
 
         # ------------------ Detached BSDF sampling -------------------
 
@@ -263,11 +257,8 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         # ---------------------- Direct emission ----------------------
 
-        #bsdf_sample_result = self.emitter_hit(scene, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si)
-        # bsdf_sample_result = self.emitter_hit_indirect(scene, bsdf_ctx, sampler, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
-        #                                        dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
         bsdf_sample_result = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
-                                               dr.detach(si), dr.detach(emitter_pos), dr.detach(emitter_normal), dr.detach(emitter_radius), emitter_radiance=emitter_radiance)
+                                               dr.detach(si), emitters)
 
         # ---------------------- Eval RHS ----------------------
         with dr.suspend_grad():
@@ -291,7 +282,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         #aov = dr.select(valid_ray, E + bsdf_sample_result, 0)
 
-        aov = dr.select(valid_ray, E+LHS, 0)
+        aov = dr.select(valid_ray, LHS, 0)
         rgb = dr.select(valid_ray, RHS, 0)
 
         residual = dr.select(valid_ray, self.residual_function.compute_loss(LHS, RHS), 0)
