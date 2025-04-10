@@ -112,7 +112,7 @@ class ShapeSampler():
         #radius = np.sqrt(area / np.pi) if area > 0 else 0.0
         radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
 
-        radius = mi.Float(0.1) # A modo de prueba se define el radio manualmente
+        radius = mi.Float(self.sampler.next_1d()) # A modo de prueba se define el radio manualmente
 
         radiance = mi.Color3f(17.,12.,4.)
 
