@@ -313,8 +313,8 @@ class MyPathTracer(mi.SamplingIntegrator):
         else:
 
             if len(emitters) == 1:
-                (sampled_emitter_pos, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitters[0]
-                sampled_emitter_pos = self.sample_emitter_point(sampler, sampled_emitter_pos, sampled_emitter_normal, sampled_emitter_radius)
+                (center_emitter_pos, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitters[0]
+                sampled_emitter_pos = self.sample_emitter_point(sampler, center_emitter_pos, sampled_emitter_normal, sampled_emitter_radius)
             else:
 
                 sample = sampler.next_1d()
@@ -328,14 +328,14 @@ class MyPathTracer(mi.SamplingIntegrator):
                 radius_array = mi.Float(np.array([p[0] for p in radiuss], dtype=np.float32))
                 radiances_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in radiances], dtype=np.float32))
 
-                selected_pos     = dr.gather(mi.Point3f, positions_array, emitter_index)
-                selected_normal  = dr.gather(mi.Point3f, normals_array, emitter_index)
-                selected_radius  = dr.gather(mi.Float, radius_array, emitter_index)
+                center_emitter_pos  = dr.gather(mi.Point3f, positions_array, emitter_index)
+                selected_normal     = dr.gather(mi.Point3f, normals_array, emitter_index)
+                selected_radius     = dr.gather(mi.Float, radius_array, emitter_index)
                 selected_radiances  = dr.gather(mi.Point3f, radiances_array, emitter_index)
 
                 #emitter = random.choice(emitters)
                 #(_, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitter
-                sampled_emitter_pos = self.sample_emitter_point(sampler, selected_pos, selected_normal, selected_radius)
+                sampled_emitter_pos = self.sample_emitter_point(sampler, center_emitter_pos, selected_normal, selected_radius)
                 sampled_emitter_normal = selected_normal
                 sampled_emitter_radius = selected_radius
                 sampled_emitter_radiance = selected_radiances
@@ -344,7 +344,7 @@ class MyPathTracer(mi.SamplingIntegrator):
         nor = sampled_emitter_normal / dr.norm(sampled_emitter_normal)
 
         # Vector d desde el centro hasta cada punto p
-        d = si.p - sampled_emitter_pos
+        d = si.p - center_emitter_pos
 
         # Distancia (escalar) al plano según la normal
         dist_plano = dr.dot(d, nor)
