@@ -18,6 +18,8 @@ from nerad.utils.render_utils import render_and_save_image
 from nerad.utils.sensor_utils import create_sensor
 from nerad.utils.json_utils import write_json
 
+import time
+
 logger = logging.getLogger(__name__)
 
 import cv2
@@ -136,9 +138,15 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
     recalculate_image = True
     parm_img_clicked = {0: False}
 
+    last_render_time = 0.0
+    fps = 0.0
+
     while True:
 
         if recalculate_image:
+
+            start_time = time.time()
+
             dr.flush_malloc_cache()
             torch.cuda.empty_cache()
 
@@ -161,6 +169,15 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
 
             recalculate_image = False
             parm_img_clicked = {0: False}
+
+            end_time = time.time()
+            last_render_time = end_time - start_time
+            fps = 1.0 / last_render_time if last_render_time > 0 else 0.0
+
+            # Dibujar FPS sobre la imagen
+            cv2.putText(img_LHS_np, f"FPS: {fps:.2f}", (10, 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+
 
         cv2.setMouseCallback("Renderizado Interactivo", on_mouse_click, param=(scene, sensor, img_width, img_height, test_integrators, parm_img_clicked))
 

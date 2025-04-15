@@ -6,3 +6,4 @@ image:
   point_direct_light: false
   weighted_sampling: false
   spp_network: 1
+  paralell_rendering: false
