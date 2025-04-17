@@ -13,6 +13,8 @@ import numpy as np
 import torch
 import threading
 
+import time
+
 @register_integrator("highquality")
 class HighQuality(mi.SamplingIntegrator):
     """
@@ -98,6 +100,8 @@ class HighQuality(mi.SamplingIntegrator):
         It uses the underlying integrator to render each block.
         """
 
+        self.print_pytorch_gpu_tensors()
+
         # Si no está en modo testeo interactivo, entonces se utiliza el método render original de Neural Radiosity
         if not self.interactive_test:
             return self.render_original(scene, sensor, seed, spp, develop, evaluate)
@@ -170,10 +174,9 @@ class HighQuality(mi.SamplingIntegrator):
             block_total = sensor.film().create_block(block_size)
             block_total.set_offset(block_offset)
 
-            stream_direct = torch.cuda.Stream()
-            stream_indirect = torch.cuda.Stream()
-
             def compute_direct():
+
+                stream_direct = torch.cuda.Stream()
 
                 block_direct = sensor.film().create_block(block_size)
                 block_direct.set_offset(block_offset)
@@ -250,7 +253,15 @@ class HighQuality(mi.SamplingIntegrator):
                         torch.cuda.empty_cache()
                         dr.flush_malloc_cache()
 
+                stream_direct.synchronize()  # Esperar que CUDA termine
+                del stream_direct             # Liberar el stream explícitamente
+                torch.cuda.empty_cache()     # Liberar memoria cacheada en GPU
+                dr.flush_malloc_cache()      # Lo mismo para DrJit
+                gc.collect()
+
             def compute_indirect():
+
+                stream_indirect = torch.cuda.Stream()
 
                 with torch.cuda.stream(stream_indirect):
 
@@ -338,6 +349,12 @@ class HighQuality(mi.SamplingIntegrator):
                                 block_total.put_block(block_indirect)
                                 del block_indirect
 
+                stream_indirect.synchronize()  # Esperar que CUDA termine
+                del stream_indirect             # Liberar el stream explícitamente
+                torch.cuda.empty_cache()     # Liberar memoria cacheada en GPU
+                dr.flush_malloc_cache()      # Lo mismo para DrJit
+                gc.collect()
+
             if self.paralell_rendering:
                 t1 = threading.Thread(target=compute_direct)
                 t2 = threading.Thread(target=compute_indirect)
@@ -345,9 +362,18 @@ class HighQuality(mi.SamplingIntegrator):
                 t2.start()
                 t1.join()
                 t2.join()
+                print(f"[{i}] Mem alloc: {torch.cuda.memory_allocated()/1e6:.2f} MB, Reserved: {torch.cuda.memory_reserved()/1e6:.2f} MB")
             else:
+                start_direct = time.perf_counter()
                 compute_direct()
+                end_direct = time.perf_counter()
+
+                start_indirect = time.perf_counter()
                 compute_indirect()
+                end_indirect = time.perf_counter()
+
+                print(f"Tiempo compute_direct:  {end_direct - start_direct:.3f} s")
+                print(f"Tiempo compute_indirect: {end_indirect - start_indirect:.3f} s")
 
             # ---------- Combinación final ----------
             sensor.film().put_block(block_total)

@@ -25,6 +25,8 @@ logger = logging.getLogger(__name__)
 import cv2
 import numpy as np
 
+import gc
+
 def tensor_to_opencv(outputs):
     """
     Convierte un tensor de Mitsuba a una imagen correctamente normalizada
@@ -141,6 +143,9 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
     last_render_time = 0.0
     fps = 0.0
 
+    img_LHS_np = None
+    sensor = None
+
     while True:
 
         if recalculate_image:
@@ -149,23 +154,32 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
 
             dr.flush_malloc_cache()
             torch.cuda.empty_cache()
+            gc.collect()
 
-            gt = {"image": images[view_idx] if images is not None else None}
-            rendering = cfg_test_rendering
-            sensor = create_sensor(rendering.width, transforms[str(view_idx)])
+            #gt = {"image": images[view_idx] if images is not None else None}
+            del sensor
+            sensor = create_sensor(cfg_test_rendering.width, transforms[str(view_idx)])
 
+            start_timer = time.perf_counter()
             outputs = render_and_save_image(
                 out_root / "interactive",
                 f"{view_idx:03d}",
                 scene,
                 test_integrators["image"],
-                rendering,
+                cfg_test_rendering,
                 sensor,
                 save_image_to_disk=False
             )
+            end_timer = time.perf_counter()
+
+            print(f"Tiempo renderizado:  {end_timer - start_timer:.3f} s")
+
+            del img_LHS_np
 
             img_LHS_np = tensor_to_opencv(outputs)
             img_height, img_width, _ = img_LHS_np.shape
+
+            del outputs
 
             recalculate_image = False
             parm_img_clicked = {0: False}
@@ -175,8 +189,7 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
             fps = 1.0 / last_render_time if last_render_time > 0 else 0.0
 
             # Dibujar FPS sobre la imagen
-            cv2.putText(img_LHS_np, f"FPS: {fps:.2f}", (10, 30),
-                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+            cv2.putText(img_LHS_np, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
 
 
         cv2.setMouseCallback("Renderizado Interactivo", on_mouse_click, param=(scene, sensor, img_width, img_height, test_integrators, parm_img_clicked))
