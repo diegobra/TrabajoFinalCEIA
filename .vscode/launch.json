@@ -165,12 +165,12 @@
             "program": "${workspaceFolder}/test_interactive.py",
             "console": "integratedTerminal",
             "args": [
-                "test_rendering.image.spp=32",
+                "test_rendering.image.spp=64",
                 "test_rendering.image.spp_network=1",
                 "test_rendering.image.width=512",
                 "test_rendering.image.point_direct_light=false",
                 "test_rendering.image.weighted_sampling=false",
-                "test_rendering.image.paralell_rendering=false",
+                "test_rendering.image.paralell_rendering=true",
                 "blocksize=512",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-23-13-37-18-cbox",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-24-17-39-54-cbox glossy_left_short",
@@ -180,6 +180,7 @@
                 "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-04-08-18-28-14-cbox",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-04-09-21-07-24-cbox_variable_radius",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-04-10-18-23-28-cbox_var_radius_radiance",
+                //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-04-20-14-57-29-cbox_var_radius_radiance",
             ]
         },
         {

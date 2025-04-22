@@ -45,7 +45,7 @@ def tensor_to_opencv(outputs):
     # Convertir la imagen Bitmap de Mitsuba a NumPy
     img_np = np.array(img_mi)
 
-    # Convertir RGB → BGR para OpenCV
+    # Convertir RGB a BGR para OpenCV
     img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
     return img_np

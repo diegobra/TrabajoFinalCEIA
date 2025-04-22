@@ -15,6 +15,9 @@ from .nerad import Nerad
 
 import numpy as np
 
+import time
+from datetime import datetime
+
 @register_integrator("nerad_emitters_indirect")
 class NeradEmittersIndirect(Nerad, nn.Module):
     def __init__(self, props: mi.Properties):
@@ -97,6 +100,10 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         residual = mi.Color3f(aov[-3:])
         return residual
 
+    def log(self, mensaje):
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        print(f"[{timestamp}] {mensaje}")
+
     def sample(self,
                scene: mi.Scene,         # Información de la escena
                sampler: mi.Sampler,     # Generador de números aleatorios
@@ -110,6 +117,8 @@ class NeradEmittersIndirect(Nerad, nn.Module):
                **kwargs):
 
         m = 1
+
+        self.log('sample1')
 
         (emitter_pos, emitter_normal, emitter_radius, emitter_radiance) = emitters[0]
         sampler_m = kwargs.get("sampler_m", None)
@@ -147,8 +156,12 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
 
         if return_only_direct_light:
+            start_direct = time.perf_counter()
             E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                 dr.detach(si), emitters, point_direct_light=point_direct_light)
+            end_direct = time.perf_counter()
+
+            print(f"Tiempo emitter_hit_indirect:  {end_direct - start_direct:.3f} s")
 
             mask = valid_ray | (active & si.is_valid())
             LHS = dr.select(mask, E, 0)

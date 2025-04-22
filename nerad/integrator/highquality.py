@@ -14,6 +14,7 @@ import torch
 import threading
 
 import time
+from datetime import datetime
 
 @register_integrator("highquality")
 class HighQuality(mi.SamplingIntegrator):
@@ -84,7 +85,10 @@ class HighQuality(mi.SamplingIntegrator):
 
         return sampler, spp
 
-
+    def log(self, mensaje):
+        fecha_hora = datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+        tiempo_relativo = time.perf_counter() #- t0
+        print(f"[{fecha_hora}] (+{tiempo_relativo:.6f} s) {mensaje}")
 
     def render(self,
                scene: mi.Scene,
@@ -176,15 +180,21 @@ class HighQuality(mi.SamplingIntegrator):
 
             def compute_direct():
 
+                self.log('compute_direct1')
+
                 stream_direct = torch.cuda.Stream()
 
                 block_direct = sensor.film().create_block(block_size)
                 block_direct.set_offset(block_offset)
 
+                self.log('compute_direct2')
+
                 with torch.cuda.stream(stream_direct):
 
                     # Disable derivatives in all of the following
                     with dr.suspend_grad():
+
+                        self.log('compute_direct3')
 
                         # Prepare the film and sample generator for rendering
                         sampler_direct, _ = self.prepare(
@@ -193,15 +203,26 @@ class HighQuality(mi.SamplingIntegrator):
                             seed=(seed+1)*block_id,
                             spp=spp)
 
+                        self.log('compute_direct4')
+
                         # Generate a set of rays starting at the sensor
                         if self.weighted_sampling:
+                            self.log('compute_direct5')
                             ray_direct, weight_direct, pos = self.sample_rays_weighted(scene, sensor, sampler_direct, block_total, combined_mask)
+                            self.log('compute_direct6')
                             sampler_direct.seed((seed+1)*block_id, len(ray_direct.o[0]))
+                            self.log('compute_direct7')
                         else:
+                            self.log('compute_direct8')
                             ray_direct, weight_direct, pos = self.sample_rays(scene, sensor, sampler_direct, block_total)
+                            self.log('compute_direct9')
+
+
+                        self.log('compute_direct10')
 
                         # Launch the Monte Carlo sampling process in primal mode
                         if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
+                            self.log('compute_direct11')
                             L_direct, valid_direct, _ = self.integrator.sample(
                                 mode=dr.ADMode.Primal,
                                 scene=scene,
@@ -216,7 +237,9 @@ class HighQuality(mi.SamplingIntegrator):
                                 point_direct_light = self.point_direct_light,
                                 return_only_direct_light=True
                             )
+                            self.log('compute_direct12')
                         else:
+                            self.log('compute_direct13')
                             L_direct, valid_direct, aov = self.integrator.sample(
                                 scene,
                                 sampler_direct,
@@ -226,131 +249,149 @@ class HighQuality(mi.SamplingIntegrator):
                                 emitters = circular_emitters,
                                 point_direct_light = self.point_direct_light,
                                 return_only_direct_light=True)
+                            self.log('compute_direct14')
 
+                        self.log('compute_direct15')
                         alpha_direct = dr.select(valid_direct, mi.Float(1), mi.Float(0))
+                        self.log('compute_direct16')
 
                         # Accumulate into the image block
                         if has_aov:
+                            self.log('compute_direct17')
                             #Assumption: weight is always [1.0, 1.0, 1.0]
                             floatLs = [L_direct[0], L_direct[1], L_direct[2], alpha_direct, weight_direct[0]]
                             all_channels = floatLs + aov
                             block_direct.put(pos, all_channels)
+                            self.log('compute_direct18')
                             del aov
                         else:
+                            self.log('compute_direct19')
                             block_direct.put(pos, ray_direct.wavelengths, L_direct * weight_direct, alpha_direct)
+                            self.log('compute_direct20')
 
+                        self.log('compute_direct21')
                         sampler_direct.schedule_state()
+                        self.log('compute_direct22')
                         dr.eval(block_direct.tensor())
+                        self.log('compute_direct23')
 
                         # Explicitly delete any remaining unused variables
                         del ray_direct, L_direct, valid_direct, alpha_direct, weight_direct
 
+                        self.log('compute_direct24')
+
                         block_total.put_block(block_direct)
+                        self.log('compute_direct25')
 
                         del block_direct
 
-                        gc.collect()
-                        torch.cuda.empty_cache()
-                        dr.flush_malloc_cache()
+                        self.log('compute_direct26')
 
+                        # gc.collect()
+                        # self.log('compute_direct27')
+                        # torch.cuda.empty_cache()
+                        # self.log('compute_direct28')
+                        # dr.flush_malloc_cache()
+                        # self.log('compute_direct29')
+
+                self.log('compute_direct30')
                 stream_direct.synchronize()  # Esperar que CUDA termine
+                self.log('compute_direct31')
                 del stream_direct             # Liberar el stream explícitamente
+                self.log('compute_direct32')
                 torch.cuda.empty_cache()     # Liberar memoria cacheada en GPU
+                self.log('compute_direct33')
                 dr.flush_malloc_cache()      # Lo mismo para DrJit
+                self.log('compute_direct34')
                 gc.collect()
+                self.log('compute_direct35')
 
             def compute_indirect():
 
-                stream_indirect = torch.cuda.Stream()
+                # Disable derivatives in all of the following
+                with dr.suspend_grad():
+                    with torch.no_grad():
 
-                with torch.cuda.stream(stream_indirect):
+                        # ---------- Iluminación indirecta (salida de red neuronal) ----------
 
-                    # Disable derivatives in all of the following
-                    with dr.suspend_grad():
-                        with torch.no_grad():
+                        for idx, emitter in enumerate(circular_emitters):
 
-                            # ---------- Iluminación indirecta (salida de red neuronal) ----------
+                            block_indirect = sensor.film().create_block(block_size)
+                            block_indirect.set_offset(block_offset)
 
-                            for idx, emitter in enumerate(circular_emitters):
+                            # gc.collect()
+                            # torch.cuda.empty_cache()
+                            # dr.flush_malloc_cache()
 
-                                block_indirect = sensor.film().create_block(block_size)
-                                block_indirect.set_offset(block_offset)
+                            # Prepare the film and sample generator for rendering
+                            sampler_indirect, _ = self.prepare(
+                                sensor=sensor,
+                                block=block_total,
+                                seed=(seed + 1 + idx)*block_id,
+                                spp=self.spp_network)
+                            ray_indirect, weight_indirect, pos = self.sample_rays(scene, sensor, sampler_indirect, block_total)
 
-                                # gc.collect()
-                                # torch.cuda.empty_cache()
-                                # dr.flush_malloc_cache()
+                            # Launch the Monte Carlo sampling process in primal mode
+                            if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
+                                L_indirect, valid_indirect, _ = self.integrator.sample(
+                                    mode=dr.ADMode.Primal,
+                                    scene=scene,
+                                    sampler=sampler_indirect,
+                                    ray=ray_indirect,
+                                    depth=mi.UInt32(0),
+                                    δL=None,
+                                    state_in=None,
+                                    reparam=None,
+                                    active=mi.Bool(True),
+                                    emitters = [emitter],
+                                    point_direct_light = self.point_direct_light
+                                )
+                            else:
+                                #self.print_pytorch_gpu_tensors()
+                                #torch.cuda.synchronize()
+                                L_indirect, valid_indirect, aov_indirect = self.integrator.sample(
+                                    scene,
+                                    sampler_indirect,
+                                    ray_indirect,
+                                    None,
+                                    active = mi.Bool(True),
+                                    emitters = [emitter],
+                                    point_direct_light = self.point_direct_light)
+                                #torch.cuda.synchronize()
 
-                                # Prepare the film and sample generator for rendering
-                                sampler_indirect, _ = self.prepare(
-                                    sensor=sensor,
-                                    block=block_total,
-                                    seed=(seed + 1 + idx)*block_id,
-                                    spp=self.spp_network)
-                                ray_indirect, weight_indirect, pos = self.sample_rays(scene, sensor, sampler_indirect, block_total)
+                            alpha_indirect = dr.select(valid_indirect, mi.Float(1), mi.Float(0))
 
-                                # Launch the Monte Carlo sampling process in primal mode
-                                if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
-                                    L_indirect, valid_indirect, _ = self.integrator.sample(
-                                        mode=dr.ADMode.Primal,
-                                        scene=scene,
-                                        sampler=sampler_indirect,
-                                        ray=ray_indirect,
-                                        depth=mi.UInt32(0),
-                                        δL=None,
-                                        state_in=None,
-                                        reparam=None,
-                                        active=mi.Bool(True),
-                                        emitters = [emitter],
-                                        point_direct_light = self.point_direct_light
-                                    )
-                                else:
-                                    #self.print_pytorch_gpu_tensors()
-                                    #torch.cuda.synchronize()
-                                    L_indirect, valid_indirect, aov_indirect = self.integrator.sample(
-                                        scene,
-                                        sampler_indirect,
-                                        ray_indirect,
-                                        None,
-                                        active = mi.Bool(True),
-                                        emitters = [emitter],
-                                        point_direct_light = self.point_direct_light)
-                                    #torch.cuda.synchronize()
-                                    stream_indirect.synchronize()
+                            #L_indirect *= 1000 #spp/self.spp_network
 
-                                alpha_indirect = dr.select(valid_indirect, mi.Float(1), mi.Float(0))
+                            # Accumulate into the image block
+                            if has_aov:
+                                # Suponiendo que aov[0], [1], [2] son RGB
+                                rgb = [aov_indirect[0] * spp / 2*self.spp_network,  # o alguna escala deseada
+                                    aov_indirect[1] * spp / 2*self.spp_network,
+                                    aov_indirect[2] * spp / 2*self.spp_network]
+                                floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
+                                all_channels = floatLs + rgb + aov_indirect[3:]  # El resto de los AOV
+                                block_indirect.put(pos, all_channels)
 
-                                #L_indirect *= 1000 #spp/self.spp_network
+                                # #Assumption: weight is always [1.0, 1.0, 1.0]
+                                # floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
+                                # all_channels = floatLs + aov
+                                # block_indirect.put(pos, all_channels)
+                                del aov_indirect, rgb
+                            else:
+                                block_indirect.put(pos, ray_indirect.wavelengths, L_indirect * weight_indirect, alpha_indirect)
 
-                                # Accumulate into the image block
-                                if has_aov:
-                                    # Suponiendo que aov[0], [1], [2] son RGB
-                                    rgb = [aov_indirect[0] * spp / 2*self.spp_network,  # o alguna escala deseada
-                                        aov_indirect[1] * spp / 2*self.spp_network,
-                                        aov_indirect[2] * spp / 2*self.spp_network]
-                                    floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
-                                    all_channels = floatLs + rgb + aov_indirect[3:]  # El resto de los AOV
-                                    block_indirect.put(pos, all_channels)
+                            sampler_indirect.schedule_state()
+                            dr.eval(block_indirect.tensor())
 
-                                    # #Assumption: weight is always [1.0, 1.0, 1.0]
-                                    # floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
-                                    # all_channels = floatLs + aov
-                                    # block_indirect.put(pos, all_channels)
-                                    del aov_indirect, rgb
-                                else:
-                                    block_indirect.put(pos, ray_indirect.wavelengths, L_indirect * weight_indirect, alpha_indirect)
+                            del ray_indirect, L_indirect, valid_indirect, alpha_indirect, weight_indirect
 
-                                sampler_indirect.schedule_state()
-                                dr.eval(block_indirect.tensor())
+                            gc.collect()
 
-                                del ray_indirect, L_indirect, valid_indirect, alpha_indirect, weight_indirect
+                            block_total.put_block(block_indirect)
+                            del block_indirect
 
-                                gc.collect()
-
-                                block_total.put_block(block_indirect)
-                                del block_indirect
-
-                stream_indirect.synchronize()  # Esperar que CUDA termine
-                del stream_indirect             # Liberar el stream explícitamente
+                torch.cuda.synchronize()
                 torch.cuda.empty_cache()     # Liberar memoria cacheada en GPU
                 dr.flush_malloc_cache()      # Lo mismo para DrJit
                 gc.collect()
