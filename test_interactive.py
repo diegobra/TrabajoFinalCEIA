@@ -92,17 +92,17 @@ def get_intersection(scene, sensor, x, y, img_width, img_height):
         dot_product = dr.dot(si.n, ray.d)
 
         if dot_product[0] > 0:  # Si el rayo impactó desde dentro, invertir la normal
-            print("El rayo impactó desde dentro, invirtiendo la normal")
+            #print("El rayo impactó desde dentro, invirtiendo la normal")
             normal = -normal
 
-        print(f"Intersección en ({si.p[0]}, {si.p[1]}, {si.p[2]})")
-        print(f"   Normal: ({normal})")
-        print(f"   Albedo: {si.bsdf()}")  # Muestra información del material
-        print(f"   Shape: {si.shape[0].id()}")  # Muestra información del material
+        #print(f"Intersección en ({si.p[0]}, {si.p[1]}, {si.p[2]})")
+        #print(f"   Normal: ({normal})")
+        #print(f"   Albedo: {si.bsdf()}")  # Muestra información del material
+        #print(f"   Shape: {si.shape[0].id()}")  # Muestra información del material
 
         return si.p, normal  # Retorna la posición y la intersección completa
     else:
-        print("No se encontró intersección")
+        #print("No se encontró intersección")
         return None, None
 
 def on_mouse_click(event, x, y, flags, param):
@@ -111,13 +111,13 @@ def on_mouse_click(event, x, y, flags, param):
     """
     if event == cv2.EVENT_LBUTTONDOWN:
         scene, sensor, img_width, img_height, test_integrators, parm_img_clicked = param
-        print(f"Click en imagen en ({x}, {y})")
+        #print(f"Click en imagen en ({x}, {y})")
 
         # Obtener intersección
         position, normal = get_intersection(scene, sensor, x, y, img_width, img_height)
 
         if position is not None:
-            print(f"Coordenadas en mundo: {position}")
+            #print(f"Coordenadas en mundo: {position}")
 
             parm_img_clicked[0] = True
 

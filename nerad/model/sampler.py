@@ -86,7 +86,7 @@ class ShapeSampler():
 
         return to_ret, prob
 
-    def sample_random_emitter(self, scene, seed):
+    def sample_random_emitter(self, scene, seed, channel_dropout=True, total_power = 33):
         """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
 
         self.sampler.set_sample_count(1)
@@ -108,15 +108,46 @@ class ShapeSampler():
         normal = sample.n
 
         # Aproximar radio como la raíz cuadrada del área del shape dividido por PI
-        area = shape.surface_area()
+        #area = shape.surface_area()
         #radius = np.sqrt(area / np.pi) if area > 0 else 0.0
-        radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
+        #radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
 
         #radius = mi.Float(0.1) # A modo de prueba se define el radio manualmente
-        radius = self.sampler.next_1d() # A modo de prueba se define el radio manualmente
+        radius = self.sampler.next_1d() * 0.2 # A modo de prueba se define el radio manualmente
 
         #radiance = mi.Color3f(17.,12.,4.)
-        radiance = mi.Color3f(self.sampler.next_1d()*20,self.sampler.next_1d()*20,self.sampler.next_1d()*20)
+
+        if not channel_dropout:
+            radiance = mi.Color3f(self.sampler.next_1d()*20,self.sampler.next_1d()*20,self.sampler.next_1d()*20)
+        else:
+
+            # Se realiza una especie de "dropout de canales" para la radiancia del emisor
+            # Con esto se quiere probar si forzando apagar diferentes combinaciones de canales se aprende mejor en el entrenamiento
+
+            on_off_patterns = [
+                (0, 0, 1),
+                (0, 1, 0),
+                (0, 1, 1),
+                (1, 0, 0),
+                (1, 0, 1),
+                (1, 1, 0),
+                (1, 1, 1),
+            ]
+
+            pattern = on_off_patterns[seed % len(on_off_patterns)]
+            #pattern = on_off_patterns[mi.UInt32(self.sampler.next_1d()*7)[0]]
+
+            r_rnd = self.sampler.next_1d()
+            g_rnd = self.sampler.next_1d()
+            b_rnd = self.sampler.next_1d()
+
+            channel_sum = pattern[0] * r_rnd + pattern[1] * g_rnd + pattern[2] * b_rnd + 1e-5
+
+            radiance = mi.Color3f(
+                pattern[0] * (r_rnd / channel_sum) * total_power,
+                pattern[1] * (g_rnd / channel_sum) * total_power,
+                pattern[2] * (b_rnd / channel_sum) * total_power
+            )
 
         return position, normal, radius, radiance, shape
 

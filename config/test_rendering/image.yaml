@@ -7,3 +7,4 @@ image:
   weighted_sampling: false
   spp_network: 1
   paralell_rendering: false
+  only_indirect: false

@@ -114,11 +114,10 @@ class NeradEmittersIndirect(Nerad, nn.Module):
                emitters,
                point_direct_light=False,
                return_only_direct_light=False,
+               force_return_only_LHS=False,
                **kwargs):
 
         m = 1
-
-        self.log('sample1')
 
         (emitter_pos, emitter_normal, emitter_radius, emitter_radiance) = emitters[0]
         sampler_m = kwargs.get("sampler_m", None)
@@ -156,12 +155,8 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
 
         if return_only_direct_light:
-            start_direct = time.perf_counter()
             E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
                                 dr.detach(si), emitters, point_direct_light=point_direct_light)
-            end_direct = time.perf_counter()
-
-            print(f"Tiempo emitter_hit_indirect:  {end_direct - start_direct:.3f} s")
 
             mask = valid_ray | (active & si.is_valid())
             LHS = dr.select(mask, E, 0)
@@ -200,12 +195,12 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         # ---------------------- Direct emission ----------------------
 
-        E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
-                               dr.detach(si), emitters, point_direct_light=point_direct_light)
+        # E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
+        #                        dr.detach(si), emitters, point_direct_light=point_direct_light)
 
-        if self.return_only_LHS:
+        if self.return_only_LHS or force_return_only_LHS:
            mask = valid_ray | (active & si.is_valid())
-           LHS = dr.select(mask, E + LHS, 0)
+           LHS = dr.select(mask, LHS, 0)
            zero_vec = LHS*0
            return zero_vec, mask, [LHS.x, LHS.y, LHS.z, dr.select(mask, mi.Float(1), mi.Float(0)), zero_vec.x, zero_vec.y, zero_vec.z]
 

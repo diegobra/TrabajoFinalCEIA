@@ -33,6 +33,7 @@ class HighQuality(mi.SamplingIntegrator):
         self.spp_network = 1
         self.interactive_test = False
         self.paralell_rendering = False
+        self.only_indirect = False
 
     def set_custom_config(self, cfg_test_rendering, interactive_test=False):
         self.point_direct_light = cfg_test_rendering.point_direct_light
@@ -40,6 +41,7 @@ class HighQuality(mi.SamplingIntegrator):
         self.spp_network = cfg_test_rendering.spp_network
         self.paralell_rendering = cfg_test_rendering.paralell_rendering
         self.interactive_test = interactive_test
+        self.only_indirect = cfg_test_rendering.only_indirect
 
 
     def add_emitter(self, emitter_pos, emitter_normal, emitter_radius, emitter_radiance):
@@ -104,7 +106,7 @@ class HighQuality(mi.SamplingIntegrator):
         It uses the underlying integrator to render each block.
         """
 
-        self.print_pytorch_gpu_tensors()
+        #self.print_pytorch_gpu_tensors()
 
         # Si no está en modo testeo interactivo, entonces se utiliza el método render original de Neural Radiosity
         if not self.interactive_test:
@@ -180,21 +182,17 @@ class HighQuality(mi.SamplingIntegrator):
 
             def compute_direct():
 
-                self.log('compute_direct1')
+                start_direct = time.perf_counter()
 
                 stream_direct = torch.cuda.Stream()
 
                 block_direct = sensor.film().create_block(block_size)
                 block_direct.set_offset(block_offset)
 
-                self.log('compute_direct2')
-
                 with torch.cuda.stream(stream_direct):
 
                     # Disable derivatives in all of the following
                     with dr.suspend_grad():
-
-                        self.log('compute_direct3')
 
                         # Prepare the film and sample generator for rendering
                         sampler_direct, _ = self.prepare(
@@ -203,26 +201,19 @@ class HighQuality(mi.SamplingIntegrator):
                             seed=(seed+1)*block_id,
                             spp=spp)
 
-                        self.log('compute_direct4')
-
                         # Generate a set of rays starting at the sensor
                         if self.weighted_sampling:
-                            self.log('compute_direct5')
-                            ray_direct, weight_direct, pos = self.sample_rays_weighted(scene, sensor, sampler_direct, block_total, combined_mask)
-                            self.log('compute_direct6')
+                            ray_direct, weight_direct, pos, sample_count_flat, mask_width = self.sample_rays_weighted(scene, sensor, sampler_direct, block_total, combined_mask)
                             sampler_direct.seed((seed+1)*block_id, len(ray_direct.o[0]))
-                            self.log('compute_direct7')
+
+                            sample_counts = dr.gather(mi.Float, sample_count_flat, pos.y * mask_width + pos.x)
+                            scale_factor = 1.0 / dr.maximum(sample_counts, 1e-6)
+                            weight_direct *= scale_factor
                         else:
-                            self.log('compute_direct8')
                             ray_direct, weight_direct, pos = self.sample_rays(scene, sensor, sampler_direct, block_total)
-                            self.log('compute_direct9')
-
-
-                        self.log('compute_direct10')
 
                         # Launch the Monte Carlo sampling process in primal mode
                         if issubclass(type(self.integrator), mi.ad.common.ADIntegrator):
-                            self.log('compute_direct11')
                             L_direct, valid_direct, _ = self.integrator.sample(
                                 mode=dr.ADMode.Primal,
                                 scene=scene,
@@ -237,9 +228,7 @@ class HighQuality(mi.SamplingIntegrator):
                                 point_direct_light = self.point_direct_light,
                                 return_only_direct_light=True
                             )
-                            self.log('compute_direct12')
                         else:
-                            self.log('compute_direct13')
                             L_direct, valid_direct, aov = self.integrator.sample(
                                 scene,
                                 sampler_direct,
@@ -249,64 +238,43 @@ class HighQuality(mi.SamplingIntegrator):
                                 emitters = circular_emitters,
                                 point_direct_light = self.point_direct_light,
                                 return_only_direct_light=True)
-                            self.log('compute_direct14')
 
-                        self.log('compute_direct15')
                         alpha_direct = dr.select(valid_direct, mi.Float(1), mi.Float(0))
-                        self.log('compute_direct16')
 
                         # Accumulate into the image block
                         if has_aov:
-                            self.log('compute_direct17')
                             #Assumption: weight is always [1.0, 1.0, 1.0]
                             floatLs = [L_direct[0], L_direct[1], L_direct[2], alpha_direct, weight_direct[0]]
                             all_channels = floatLs + aov
                             block_direct.put(pos, all_channels)
-                            self.log('compute_direct18')
                             del aov
                         else:
-                            self.log('compute_direct19')
                             block_direct.put(pos, ray_direct.wavelengths, L_direct * weight_direct, alpha_direct)
-                            self.log('compute_direct20')
 
-                        self.log('compute_direct21')
                         sampler_direct.schedule_state()
-                        self.log('compute_direct22')
                         dr.eval(block_direct.tensor())
-                        self.log('compute_direct23')
 
                         # Explicitly delete any remaining unused variables
                         del ray_direct, L_direct, valid_direct, alpha_direct, weight_direct
 
-                        self.log('compute_direct24')
-
                         block_total.put_block(block_direct)
-                        self.log('compute_direct25')
 
                         del block_direct
 
-                        self.log('compute_direct26')
 
-                        # gc.collect()
-                        # self.log('compute_direct27')
-                        # torch.cuda.empty_cache()
-                        # self.log('compute_direct28')
-                        # dr.flush_malloc_cache()
-                        # self.log('compute_direct29')
-
-                self.log('compute_direct30')
                 stream_direct.synchronize()  # Esperar que CUDA termine
-                self.log('compute_direct31')
                 del stream_direct             # Liberar el stream explícitamente
-                self.log('compute_direct32')
                 torch.cuda.empty_cache()     # Liberar memoria cacheada en GPU
-                self.log('compute_direct33')
                 dr.flush_malloc_cache()      # Lo mismo para DrJit
-                self.log('compute_direct34')
                 gc.collect()
-                self.log('compute_direct35')
+
+                end_direct = time.perf_counter()
+                print(f"Tiempo compute_direct:  {end_direct - start_direct:.3f} s")
+
 
             def compute_indirect():
+
+                start_indirect = time.perf_counter()
 
                 # Disable derivatives in all of the following
                 with dr.suspend_grad():
@@ -344,7 +312,8 @@ class HighQuality(mi.SamplingIntegrator):
                                     reparam=None,
                                     active=mi.Bool(True),
                                     emitters = [emitter],
-                                    point_direct_light = self.point_direct_light
+                                    point_direct_light = self.point_direct_light,
+                                    force_return_only_LHS = True
                                 )
                             else:
                                 #self.print_pytorch_gpu_tensors()
@@ -356,7 +325,8 @@ class HighQuality(mi.SamplingIntegrator):
                                     None,
                                     active = mi.Bool(True),
                                     emitters = [emitter],
-                                    point_direct_light = self.point_direct_light)
+                                    point_direct_light = self.point_direct_light,
+                                    force_return_only_LHS = True)
                                 #torch.cuda.synchronize()
 
                             alpha_indirect = dr.select(valid_indirect, mi.Float(1), mi.Float(0))
@@ -366,18 +336,24 @@ class HighQuality(mi.SamplingIntegrator):
                             # Accumulate into the image block
                             if has_aov:
                                 # Suponiendo que aov[0], [1], [2] son RGB
-                                rgb = [aov_indirect[0] * spp / 2*self.spp_network,  # o alguna escala deseada
-                                    aov_indirect[1] * spp / 2*self.spp_network,
-                                    aov_indirect[2] * spp / 2*self.spp_network]
-                                floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
-                                all_channels = floatLs + rgb + aov_indirect[3:]  # El resto de los AOV
-                                block_indirect.put(pos, all_channels)
 
-                                # #Assumption: weight is always [1.0, 1.0, 1.0]
-                                # floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
-                                # all_channels = floatLs + aov
-                                # block_indirect.put(pos, all_channels)
-                                del aov_indirect, rgb
+                                if self.only_indirect:
+                                    #Assumption: weight is always [1.0, 1.0, 1.0]
+                                    floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
+                                    all_channels = floatLs + aov_indirect
+                                    block_indirect.put(pos, all_channels)
+                                    del aov_indirect
+                                else:
+                                    # Si se suma la iluminación directa, entonces hay que compensar el muestreo de las dos etapas (directa e indirecta)
+                                    rgb = [aov_indirect[0] * spp / 2*self.spp_network,  # o alguna escala deseada
+                                        aov_indirect[1] * spp / 2*self.spp_network,
+                                        aov_indirect[2] * spp / 2*self.spp_network]
+                                    floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
+                                    all_channels = floatLs + rgb + aov_indirect[3:]  # El resto de los AOV
+                                    block_indirect.put(pos, all_channels)
+
+                                    del aov_indirect, rgb
+
                             else:
                                 block_indirect.put(pos, ray_indirect.wavelengths, L_indirect * weight_indirect, alpha_indirect)
 
@@ -396,25 +372,37 @@ class HighQuality(mi.SamplingIntegrator):
                 dr.flush_malloc_cache()      # Lo mismo para DrJit
                 gc.collect()
 
-            if self.paralell_rendering:
-                t1 = threading.Thread(target=compute_direct)
-                t2 = threading.Thread(target=compute_indirect)
-                t1.start()
-                t2.start()
-                t1.join()
-                t2.join()
-                print(f"[{i}] Mem alloc: {torch.cuda.memory_allocated()/1e6:.2f} MB, Reserved: {torch.cuda.memory_reserved()/1e6:.2f} MB")
-            else:
-                start_direct = time.perf_counter()
-                compute_direct()
-                end_direct = time.perf_counter()
-
-                start_indirect = time.perf_counter()
-                compute_indirect()
                 end_indirect = time.perf_counter()
-
-                print(f"Tiempo compute_direct:  {end_direct - start_direct:.3f} s")
                 print(f"Tiempo compute_indirect: {end_indirect - start_indirect:.3f} s")
+
+            if self.paralell_rendering:
+                if self.only_indirect:
+                    start_sequential = time.perf_counter()
+                    compute_indirect()
+                    end_sequential = time.perf_counter()
+
+                    print(f"Tiempo total (iluminación indirecta): {end_sequential - start_sequential:.3f} s")
+                else: # se puede paralelizar
+                    start_paralell = time.perf_counter()
+                    t1 = threading.Thread(target=compute_direct)
+                    t2 = threading.Thread(target=compute_indirect)
+                    t1.start()
+                    t2.start()
+                    t1.join()
+                    t2.join()
+                    end_paralell = time.perf_counter()
+                    print(f"Tiempo total (paralelo): {end_paralell - start_paralell:.3f} s")
+
+                #print(f"[{i}] Mem alloc: {torch.cuda.memory_allocated()/1e6:.2f} MB, Reserved: {torch.cuda.memory_reserved()/1e6:.2f} MB")
+            else:
+
+                start_sequential = time.perf_counter()
+                if not self.only_indirect:
+                    compute_direct()
+                compute_indirect()
+                end_sequential = time.perf_counter()
+
+                print(f"Tiempo total (secuencial): {end_sequential - start_sequential:.3f} s")
 
             # ---------- Combinación final ----------
             sensor.film().put_block(block_total)
@@ -664,7 +652,7 @@ class HighQuality(mi.SamplingIntegrator):
 
         # Parámetros adaptativos
         spp_base = 1
-        spp_max = 16
+        spp_max = 64
 
         # Total de muestras a generar
         total_samples = dr.prod(block_size) * spp_max
@@ -747,7 +735,20 @@ class HighQuality(mi.SamplingIntegrator):
         weight_filtered = dr.gather(type(weight), weight, valid_idx)
         pos_filtered    = dr.gather(type(pos_f), pos_f, valid_idx)
 
-        return ray_filtered, weight_filtered, pos_filtered
+        # === Conteo de muestras por pixel ===
+        mask_width = direct_light_mask.shape[1]
+        sample_count_flat = dr.zeros(mi.Float, direct_light_mask.shape[0] * direct_light_mask.shape[1])
+        ones = dr.ones(mi.Float, count[0])
+
+        # Para cada posición final, sumamos 1
+        pixel_x = dr.gather(mi.UInt32, pos_filtered.x, dr.arange(mi.UInt32, count[0]))
+        pixel_y = dr.gather(mi.UInt32, pos_filtered.y, dr.arange(mi.UInt32, count[0]))
+        pixel_idx = pixel_y * mask_width + pixel_x
+
+        dr.scatter(sample_count_flat, ones, pixel_idx)
+
+        return ray_filtered, weight_filtered, pos_filtered, sample_count_flat, mask_width
+
 
 
     def unique_values_drjit(self, drjit_array):
@@ -959,4 +960,4 @@ class HighQuality(mi.SamplingIntegrator):
         for ttype, shape, size in tensors[:limit]:
             print(f"{ttype.__name__:<30} shape={str(shape):<25} size={size/1024**2:.2f} MB")
 
-        print(f"\n🧠 Memoria total usada por tensores PyTorch en GPU: {total_mem / 1024**2:.2f} MB\n")
+        print(f"\nMemoria total usada por tensores PyTorch en GPU: {total_mem / 1024**2:.2f} MB\n")
