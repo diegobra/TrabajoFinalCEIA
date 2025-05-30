@@ -10,6 +10,7 @@ from nerad.model.tcnn_embedding import TcnnEmbedding
 from nerad.model.multires_grid import MutliResGrid
 from nerad.utils.mitsuba_utils import vec_to_tens_safe
 
+#from torch.cuda.amp import autocast
 
 def create_embedding(config):
     if config['otype'] == 'SparseGrid':
@@ -61,6 +62,7 @@ class RadianceMLP(nn.Module):
         self.dir_emb = create_embedding(direction_embedding)
         self.emitter_pos_emb = create_embedding(emitter_position_embedding)
         self.emitter_input = emitter_input
+        self.use_autocast_rhs = False
 
         def embed_size(in_vector, embedding):
             return embed(torch.zeros(1, in_vector).cuda(), embedding).shape[-1]
@@ -87,6 +89,9 @@ class RadianceMLP(nn.Module):
             *hidden_layers,
             nn.Linear(width, 3),
         )
+
+    def set_use_autocast_rhs(self, use_autocast_rhs):
+        self.use_autocast_rhs = use_autocast_rhs
 
     def forward(self, points, dirs, normals, albedo, emitter_pos=None, emitter_normal=None, emitter_radius=None, emitter_radiance=None):
         net_in = torch.cat(
@@ -129,6 +134,14 @@ class RadianceMLP(nn.Module):
         #   normals             (32768, 3),
         #   albedo              (32768, 3)
 
+        # print("net_in max:", net_in.abs().max().item())
+        # print("net_in dtype:", net_in.dtype)
+
+        #if self.use_autocast_rhs:
+        #    with autocast():
+        #        ret = self.network(net_in) # ret.shape = torch.Size([32768, 3])
+        #        return torch.abs(ret.float())
+        #else:
         ret = self.network(net_in) # ret.shape = torch.Size([32768, 3])
         return torch.abs(ret)
 
@@ -175,3 +188,6 @@ class MitsubaRadianceNetworkWrapper(MitsubaWrapper):
 
     def _traverse(self, callback):
         callback.put_parameter("network", self.network, mi.ParamFlags.Differentiable)
+
+    def set_use_autocast_rhs(self, value: bool):
+        self.network.set_use_autocast_rhs(value)

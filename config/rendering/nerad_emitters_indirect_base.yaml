@@ -9,6 +9,7 @@ config:
   max_depth: 22
   rr_depth: 5
   return_only_LHS: false
+  use_autocast_rhs: false
   m: 32
 
 post_init:

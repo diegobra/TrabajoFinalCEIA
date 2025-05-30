@@ -28,6 +28,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         self.residual_function = None
         self.network = None
         self.return_only_LHS = props.get("config").dict.get("return_only_LHS")
+        self.use_autocast_rhs = props.get("config").dict.get("use_autocast_rhs")
         self.m = props.get("config").dict.get("m")
 
         self.emitter_pos_train = None
@@ -115,6 +116,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
                point_direct_light=False,
                return_only_direct_light=False,
                force_return_only_LHS=False,
+               use_autocast_lhs=False,
                **kwargs):
 
         m = 1
@@ -188,6 +190,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         pts, dirs, normals, albedo = self.extract_inputs(si)
 
         # Se evalúa la radiosidad para cada interacción en la red neuronal
+        #self.network.set_use_autocast_rhs(use_autocast_lhs) # Se usaría autocast en LHS sólo para inferencia. Para entrenamiento no funciona bien con backpropagation
         LHS = dr.select(active & si.is_valid(), self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance), mi.Vector3f(0))
 
         # Se calcula LHS para los rayos válidos
@@ -272,8 +275,12 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         with dr.suspend_grad():
             with torch.no_grad():
                 pts, dirs, normals, albedo = self.extract_inputs(si)
+                if self.use_autocast_rhs:
+                    self.network.set_use_autocast_rhs(True)
                 RHS_net = dr.select(active & si.is_valid(),
                                     self.network.eval(pts, -ray.d, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance), mi.Vector3f(0))
+                if self.use_autocast_rhs:
+                    self.network.set_use_autocast_rhs(False)
 
         #RHS = RHS_net * throughput + bsdf_sample_result + em_sample_result
         #RHS = RHS_net * throughput + em_sample_result

@@ -86,23 +86,28 @@ class ShapeSampler():
 
         return to_ret, prob
 
-    def sample_random_emitter(self, scene, seed, channel_dropout=True, total_power = 33):
+    def sample_random_emitter(self, scene, seed, channel_dropout=True, total_power = 21.19):
         """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
 
         self.sampler.set_sample_count(1)
-        self.sampler.seed(seed, 1) # Importante no utilizar la misma semilla en cada iteración
+        self.sampler.seed(seed, 1)
 
         shapes = scene.shapes()
+        areas = [shape.surface_area() for shape in shapes]
+        area_sum = sum(areas)
 
-        # Seleccionar una forma aleatoria de la escena
-        while True:
-            shape = np.random.choice(shapes)
-            # Se chequea que no sea emisor, ya que los mismos se asumen que pertenecen a las superficies existentes.
-            # Si no se hiciera este control, los emisores de la escena particular tendrían mayor probabilidad de ser sampleados, overfitteando para estos casos
-            if not shape.is_emitter():
+        # Construir distribución acumulativa
+        probs = [a / area_sum for a in areas]
+        cum_probs = np.cumsum(probs)
+
+        # Elegir un shape según su área
+        u = self.sampler.next_1d()
+        for i, cp in enumerate(cum_probs):
+            if u[0] < cp:
+                shape = shapes[i]
                 break
 
-        # Samplear un punto aleatorio en la superficie
+        # Samplear posición sobre el shape elegido
         sample = shape.sample_position(0, self.sampler.next_2d())
         position = sample.p
         normal = sample.n
@@ -113,7 +118,9 @@ class ShapeSampler():
         #radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
 
         #radius = mi.Float(0.1) # A modo de prueba se define el radio manualmente
-        radius = self.sampler.next_1d() * 0.2 # A modo de prueba se define el radio manualmente
+        radius = self.sampler.next_1d() * 0.3
+        #radius = 0.02 + self.sampler.next_1d() * (0.2 - 0.02) # Se establece un radio mínimo para evitar artefectos en la imagen
+
 
         #radiance = mi.Color3f(17.,12.,4.)
 
@@ -141,13 +148,17 @@ class ShapeSampler():
             g_rnd = self.sampler.next_1d()
             b_rnd = self.sampler.next_1d()
 
-            channel_sum = pattern[0] * r_rnd + pattern[1] * g_rnd + pattern[2] * b_rnd + 1e-5
+            # Generar valores aleatorios por canal, multiplicados por el patrón (0 o 1)
+            r = pattern[0] * r_rnd
+            g = pattern[1] * g_rnd
+            b = pattern[2] * b_rnd
 
-            radiance = mi.Color3f(
-                pattern[0] * (r_rnd / channel_sum) * total_power,
-                pattern[1] * (g_rnd / channel_sum) * total_power,
-                pattern[2] * (b_rnd / channel_sum) * total_power
-            )
+            # Calcular norma euclídea y escalar para obtener magnitud = total_power
+            norm = dr.sqrt(r**2 + g**2 + b**2) + 1e-8  # evitar división por cero
+            scale = total_power / norm
+
+            radiance = mi.Color3f(r * scale, g * scale, b * scale)
+
 
         return position, normal, radius, radiance, shape
 

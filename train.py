@@ -131,8 +131,6 @@ def main(cfg: TrainConfig = None):
 
         time_profiler.end("forward")
 
-
-
         # record loss values every several steps to reduce GPU-CPU comm
         loss_values = {}
 
@@ -152,6 +150,7 @@ def main(cfg: TrainConfig = None):
 
         if torch_optim is not None:
             torch_optim.step()
+
             if torch_scheduler is not None:
                 torch_scheduler.step()
                 writer.add_scalar("torch_learning_rate", torch_optim.param_groups[0]["lr"], global_step=step)
