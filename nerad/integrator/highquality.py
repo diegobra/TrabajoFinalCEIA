@@ -345,9 +345,9 @@ class HighQuality(mi.SamplingIntegrator):
                                     del aov_indirect
                                 else:
                                     # Si se suma la iluminación directa, entonces hay que compensar el muestreo de las dos etapas (directa e indirecta)
-                                    rgb = [aov_indirect[0] * spp / 2*self.spp_network,  # o alguna escala deseada
-                                        aov_indirect[1] * spp / 2*self.spp_network,
-                                        aov_indirect[2] * spp / 2*self.spp_network]
+                                    rgb = [aov_indirect[0] * spp / self.spp_network,  # o alguna escala deseada
+                                        aov_indirect[1] * spp / self.spp_network,
+                                        aov_indirect[2] * spp / self.spp_network]
                                     floatLs = [L_indirect[0], L_indirect[1], L_indirect[2], alpha_indirect, weight_indirect[0]]
                                     all_channels = floatLs + rgb + aov_indirect[3:]  # El resto de los AOV
                                     block_indirect.put(pos, all_channels)

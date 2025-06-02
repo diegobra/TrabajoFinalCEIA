@@ -45,6 +45,8 @@ def tensor_to_opencv(outputs):
     # Convertir la imagen Bitmap de Mitsuba a NumPy
     img_np = np.array(img_mi)
 
+
+
     # Convertir RGB a BGR para OpenCV
     img_np = cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR)
 
@@ -177,6 +179,8 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
             del img_LHS_np
 
             img_LHS_np = tensor_to_opencv(outputs)
+            #img_LHS_np = normalize_for_display(outputs[0], clip_max=1.0)
+            #img_LHS_np = tone_map_reinhard(outputs[0])
             img_height, img_width, _ = img_LHS_np.shape
 
             del outputs
@@ -374,6 +378,25 @@ def merge_config(test: TestConfig, train: TrainConfig) -> TestConfig:
     logger.info("Merged config:\n" + OmegaConf.to_yaml(test))
     return test
 
+def normalize_for_display(tensor_img, clip_max=2.0):
+    """
+    Normaliza el tensor de Mitsuba para visualizar sin que los valores extremos dominen.
+    """
+    img = tensor_img.numpy()
+    img = np.clip(img / clip_max, 0, 1)
+    img = (img * 255).astype(np.uint8)
+    return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
+
+def tone_map_reinhard(tensor_img):
+    """
+    Aplica tone mapping tipo Reinhard: x / (1 + x)
+    Ideal para manejar alto rango dinámico sin definir clip explícito.
+    """
+    img = tensor_img.numpy()
+    img = img / (1.0 + img)
+    img = np.clip(img, 0, 1)
+    img = (img * 255).astype(np.uint8)
+    return cv2.cvtColor(img, cv2.COLOR_RGB2BGR)
 
 if __name__ == "__main__":
     main()
