@@ -301,7 +301,8 @@ class MyPathTracer(mi.SamplingIntegrator):
 
     def emitter_hit_indirect(self, sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
                     emitters, point_direct_light=False,
-                    tolerance=1e-1):
+                    include_emitter_radiance=False,
+                    tolerance=1e-3):
         """
         Retorna la radiancia total directa, incluyendo la emisión del emisor y la luz directa desde otras superficies.
         """
@@ -360,8 +361,6 @@ class MyPathTracer(mi.SamplingIntegrator):
         #dot_normales = dr.dot(n, nor)
 
         # 4. Seleccionar Le donde 'belongs' es True, 0 donde es False
-        Le_cero = dr.zeros(type(sampled_emitter_radiance))  # Construye un "cero" del mismo tipo que Le
-        Le = dr.select(belongs, sampled_emitter_radiance, Le_cero)
 
         # Cálculo de la PDF del emisor
         emitter_area = dr.pi * sampled_emitter_radius ** 2
@@ -369,10 +368,18 @@ class MyPathTracer(mi.SamplingIntegrator):
         dist_sq = dr.squared_norm(d_to_emitter)
         dist_to_emitter = dr.norm(d_to_emitter)
         d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)
-        cos_theta = dr.maximum(dr.dot(-d_to_emitter, nor), 1e-4)  # Evitar divisiones por cero
-        emitter_pdf = dr.select((cos_theta > 1e-4) & ~prev_bsdf_delta,
+        cos_theta_raw = dr.dot(-d_to_emitter, nor)
+        valid_cos = cos_theta_raw > 1e-3
+        cos_theta = dr.select(valid_cos, cos_theta_raw, 0.0)
+        emitter_pdf = dr.select(valid_cos & (cos_theta > 1e-4) & ~prev_bsdf_delta,
                                 dr.maximum(dist_sq / (emitter_area * cos_theta), 1e-8),
                                 0.0)
+
+        if not include_emitter_radiance:
+            belongs &= valid_cos
+
+        Le_cero = dr.zeros(type(sampled_emitter_radiance))  # Construye un "cero" del mismo tipo que Le
+        Le = dr.select(belongs, sampled_emitter_radiance, Le_cero)
 
         # Cálculo del peso de Muestras Múltiples Independientes (MIS)
         mis = mis_weight(prev_bsdf_pdf, emitter_pdf)
@@ -397,6 +404,7 @@ class MyPathTracer(mi.SamplingIntegrator):
         )
         shadow_hit = scene.ray_intersect(shadow_ray)
         valid_light_mask = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t > dist_to_emitter - 0.01) #& (dr.dot(si_normal, emitter_normal) < 0)
+        valid_light_mask &= valid_cos
 
         if dr.any(valid_light_mask):
             bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_to_emitter), active=True)

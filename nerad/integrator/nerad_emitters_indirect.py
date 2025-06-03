@@ -158,7 +158,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         if return_only_direct_light:
             E = self.emitter_hit_indirect(sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta,
-                                dr.detach(si), emitters, point_direct_light=point_direct_light)
+                                dr.detach(si), emitters, point_direct_light=point_direct_light, include_emitter_radiance=True)
 
             mask = valid_ray | (active & si.is_valid())
             LHS = dr.select(mask, E, 0)
