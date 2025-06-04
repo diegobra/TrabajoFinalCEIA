@@ -297,6 +297,17 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
 
             recalculate_image = True
 
+        elif key == ord('c'):
+            test_integrators['image'].clear_emitters()
+            recalculate_image = True
+
+        elif key == ord('+'):
+            test_integrators['image'].increase_emitters_radius()
+            recalculate_image = True
+
+        elif key == ord('-'):
+            test_integrators['image'].decrease_emitters_radius()
+            recalculate_image = True
 
     cv2.destroyAllWindows()
 

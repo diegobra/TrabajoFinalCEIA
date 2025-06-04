@@ -112,6 +112,12 @@ class ShapeSampler():
         position = sample.p
         normal = sample.n
 
+        flip = self.sampler.next_1d()
+
+        # Invertir la normal con 50% de probabilidad
+        if flip[0] < 0.5:
+            normal = -normal
+
         # Aproximar radio como la raíz cuadrada del área del shape dividido por PI
         #area = shape.surface_area()
         #radius = np.sqrt(area / np.pi) if area > 0 else 0.0

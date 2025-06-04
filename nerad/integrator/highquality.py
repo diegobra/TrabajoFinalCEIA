@@ -48,6 +48,29 @@ class HighQuality(mi.SamplingIntegrator):
         """Almacena los parámetros del emisor para usarlos en render()."""
         self.emitters_params.append((emitter_pos, emitter_normal, emitter_radius, emitter_radiance))
 
+    def clear_emitters(self):
+        """ Limpia los emisores definidos en el render """
+        self.emitters_params = []
+
+    def increase_emitters_radius(self):
+        """
+        Incrementa en un 1.01x el radio de todos los emisores almacenados.
+        """
+        self.emitters_params = [
+            (pos, normal, radius * 1.05, radiance)
+            for (pos, normal, radius, radiance) in self.emitters_params
+        ]
+
+    def decrease_emitters_radius(self):
+        """
+        Incrementa en un 1.01x el radio de todos los emisores almacenados.
+        """
+        self.emitters_params = [
+            (pos, normal, radius * 0.95, radiance)
+            for (pos, normal, radius, radiance) in self.emitters_params
+        ]
+
+
     def prepare(self,
                 sensor: mi.Sensor,
                 block: mi.ImageBlock,
