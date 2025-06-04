@@ -57,7 +57,7 @@ class HighQuality(mi.SamplingIntegrator):
         Incrementa en un 1.01x el radio de todos los emisores almacenados.
         """
         self.emitters_params = [
-            (pos, normal, radius * 1.05, radiance)
+            (pos, normal, radius * 1.10, radiance)
             for (pos, normal, radius, radiance) in self.emitters_params
         ]
 
@@ -66,7 +66,7 @@ class HighQuality(mi.SamplingIntegrator):
         Incrementa en un 1.01x el radio de todos los emisores almacenados.
         """
         self.emitters_params = [
-            (pos, normal, radius * 0.95, radiance)
+            (pos, normal, radius * 0.90, radiance)
             for (pos, normal, radius, radiance) in self.emitters_params
         ]
 
