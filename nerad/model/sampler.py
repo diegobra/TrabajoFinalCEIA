@@ -124,8 +124,21 @@ class ShapeSampler():
         #radius = dr.select(area > 0, dr.sqrt(area / np.pi), 0.0)
 
         #radius = mi.Float(0.1) # A modo de prueba se define el radio manualmente
-        radius = self.sampler.next_1d() * 0.3
+        #radius = self.sampler.next_1d() * 0.3
         #radius = 0.02 + self.sampler.next_1d() * (0.2 - 0.02) # Se establece un radio mínimo para evitar artefectos en la imagen
+
+        area = shape.surface_area()
+        shape_name = shape.class_().name()
+
+        if "Cube" in shape_name:
+            face_area = area / 6
+        elif "Rectangle" in shape_name:
+            face_area = area
+        else:
+            face_area = area / 4  # valor por defecto conservador
+
+        max_radius = dr.sqrt(face_area / np.pi)
+        radius = max_radius * 0.8 * self.sampler.next_1d() # Se usa 0.8 defensivamente, para no abarcar toda el área
 
 
         #radiance = mi.Color3f(17.,12.,4.)
