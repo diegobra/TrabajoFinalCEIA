@@ -54,11 +54,11 @@ def render_and_save_image(
             # print('entro4')
 
             if "nerad" in rendering.integrator:
-                _, LHS, RHS = process_nerad_output(img)
+                residual, LHS, RHS = process_nerad_output(img)
                 if save_image_to_disk:
                     save_image(folder / "rhs", name, formats, RHS)
                     save_image(folder / "lhs", name, formats, LHS)
-                return [LHS, RHS]
+                return [residual, LHS, RHS]
             else:
                 if save_image:
                     save_image(folder, name, formats, img)
