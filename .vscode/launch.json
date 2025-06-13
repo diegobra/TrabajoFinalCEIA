@@ -14,7 +14,7 @@
                 "batch_size=32768",
                 "learning_rate=0.0005",
                 "rendering.spp=64",
-                "validation.image.step_size=1000",
+                "validation.image.step_size=250",
                 "validation.image.first_step=true",
                 "saving.latest.step_size=1000",
                 "n_steps=30000",

@@ -1,6 +1,6 @@
 defaults:
   - rendering: nerad_emitters_indirect
-  - residual_loss: l2_relative_prediction
+  - residual_loss: l2_relative_both
   - validation: [image]
   - saving: [latest]
   - _self_

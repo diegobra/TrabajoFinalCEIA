@@ -32,6 +32,8 @@ import time
 logger = logging.getLogger(__name__)
 pbar_config = ProgressBarConfig(1, ["Residual"], True)
 
+from torchmetrics.image.ssim import StructuralSimilarityIndexMeasure
+
 import numpy as np
 
 
@@ -109,6 +111,8 @@ def main(cfg: TrainConfig = None):
 
     # Tensorboard
     writer = SummaryWriter(out_root / "tensorboard")
+
+    ssim_metric = StructuralSimilarityIndexMeasure(data_range=1.0)
 
     # Training loop
     time_profiler.start("training")
@@ -199,19 +203,34 @@ def main(cfg: TrainConfig = None):
                         "Validation: " + ", ".join((f"{k}={v:.3f}" for k, v in val_metrics.items()))
                     )
 
-            if val_outputs is not None and "nerad" in rendering.integrator: # and "fixed" in hook.cfg.name:
-                residual = val_outputs[0]  # Primer valor devuelto por render_and_save_image()
+            if val_outputs is not None and "nerad" in rendering.integrator:
+                residual = val_outputs[0]              # Residual L1 por píxel (dr)
+                pred = val_outputs[1]                  # Predicción de la red
+                target = val_outputs[2]                # Valor de referencia (Monte Carlo)
 
                 # --- Parte 1: métrica escalar (residual promedio L1) ---
                 residual_mean = dr.mean(residual)
                 writer.add_scalar("metric_fixed/residual_dr_mean", residual_mean[0], global_step=step)
 
-                # --- Parte 2: mapa visual para TensorBoard ---
-                residual_np = np.array(residual)                       # Convertir a NumPy (H, W, 3)
-                residual_np = np.clip(residual_np, 0.0, 1.0)           # Para evitar saturación de color
-                residual_chw = residual_np.transpose(2, 0, 1)          # (H, W, C) → (C, H, W)
+                # --- Parte 2: SSIM ---
+                # Convertir a torch y reordenar a [B, C, H, W]
+                pred_torch = torch.from_numpy(np.array(pred)).permute(2, 0, 1).unsqueeze(0).float()
+                target_torch = torch.from_numpy(np.array(target)).permute(2, 0, 1).unsqueeze(0).float()
+
+                # Asegurar que estén en [0,1]
+                pred_torch = torch.clamp(pred_torch, 0.0, 1.0)
+                target_torch = torch.clamp(target_torch, 0.0, 1.0)
+
+                ssim_value = ssim_metric(pred_torch, target_torch)
+                writer.add_scalar("metric_fixed/ssim", ssim_value.item(), global_step=step)
+
+                # --- Parte 3: mapa visual para TensorBoard ---
+                residual_np = np.array(residual)
+                residual_np = np.clip(residual_np, 0.0, 1.0)
+                residual_chw = residual_np.transpose(2, 0, 1)
 
                 writer.add_image("metric_fixed/residual_map", residual_chw, global_step=step, dataformats='CHW')
+
 
 
 
