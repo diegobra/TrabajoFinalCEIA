@@ -89,8 +89,10 @@ class NeradEmitters(Nerad, nn.Module):
         #     self.emitter_radius_train = mi.Float(0.10)
         #     self.emitter_radiance_train = mi.Color3f(17., 12., 4.)
 
+        emitters_train = [(self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train)]
+
         _, _, aov = self.sample(scene, self.residual_sampler.sampler, si, 0, True,
-                                self.emitter_pos_train, self.emitter_normal_train, self.emitter_radius_train, self.emitter_radiance_train,
+                                emitters_train,
                                 sampler_m = self.residual_sampler_m)
         residual = mi.Color3f(aov[-3:])
         return residual
@@ -102,13 +104,12 @@ class NeradEmitters(Nerad, nn.Module):
                                         # Recibe SurfaceInteraction cuando está entrenando y Ray3f cuando rederiza la imagen
                medium: mi.Medium,
                active: mi.Bool,
-               emitter_pos,
-               emitter_normal,
-               emitter_radius,
-               emitter_radiance,
+               emitters,
                **kwargs):
 
         m = 1
+
+        (emitter_pos, emitter_normal, emitter_radius, emitter_radiance) = emitters[0]
 
         # if emitter_pos is None:
         #     # Luz derecha

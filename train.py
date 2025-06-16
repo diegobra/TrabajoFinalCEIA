@@ -224,6 +224,16 @@ def main(cfg: TrainConfig = None):
                 ssim_value = ssim_metric(pred_torch, target_torch)
                 writer.add_scalar("metric_fixed/ssim", ssim_value.item(), global_step=step)
 
+                # --- Parte 2.5: L1 relativo ---
+                eps = 1e-2  # Pequeño valor para evitar división por cero
+
+                abs_diff = torch.abs(pred_torch - target_torch)
+                numerator = torch.sum(abs_diff)
+                denominator = torch.sum(torch.abs(target_torch)) + eps
+
+                l1_relative = (numerator / denominator).item()
+                writer.add_scalar("metric_fixed/l1_relative", l1_relative, global_step=step)
+
                 # --- Parte 3: mapa visual para TensorBoard ---
                 residual_np = np.array(residual)
                 residual_np = np.clip(residual_np, 0.0, 1.0)
