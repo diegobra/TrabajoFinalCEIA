@@ -86,7 +86,99 @@ class ShapeSampler():
 
         return to_ret, prob
 
-    def sample_random_emitter(self, scene, seed, channel_dropout=True, total_power = 21.19):
+    def sample_random_emitter(self, scene, seed, channel_dropout=True, total_power=21.19):
+        """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
+
+        self.sampler.set_sample_count(1)
+        self.sampler.seed(seed, 1)
+
+        shapes = scene.shapes()
+        areas = [shape.surface_area() for shape in shapes]
+        area_sum = sum(areas)
+
+        # Construir distribución acumulativa
+        probs = [a / area_sum for a in areas]
+        cum_probs = np.cumsum(probs)
+
+        # Elegir un shape según su área
+        u = self.sampler.next_1d()
+        for i, cp in enumerate(cum_probs):
+            if u[0] < cp:
+                shape = shapes[i]
+                break
+
+        shape_name = shape.class_().name()
+
+        # Samplear uv y obtener posición sobre el shape
+        uv = self.sampler.next_2d()
+        sample = shape.sample_position(0, uv)
+        position = sample.p
+        normal = sample.n
+
+        flip = self.sampler.next_1d()
+        if flip[0] < 0.5:
+            normal = -normal
+
+        # --- Radio predeterminado (fallback para formas no planas) ---
+        radius = 0.02 + self.sampler.next_1d() * (0.2 - 0.02)
+
+        # --- Calcular radio contenido si el shape es plano ---
+        if "Rectangle" in shape_name or "Cube" in shape_name:
+            # Calcular distancia mínima a los bordes en espacio UV
+            d0 = dr.minimum(uv[0], 1 - uv[0])
+            d1 = dr.minimum(uv[1], 1 - uv[1])
+            min_uv_dist = dr.minimum(d0, d1)
+            safe_fraction = 0.95
+
+            # Bounding box del shape para estimar tamaño físico de la cara
+            bbox = shape.bbox()
+            diag = bbox.max - bbox.min
+            axes_lengths = [dr.abs(diag[0]), dr.abs(diag[1]), dr.abs(diag[2])]
+            sorted_axes = sorted(axes_lengths)
+            long_side = sorted_axes[-1]
+            short_side = sorted_axes[-2]
+            min_side = min(long_side, short_side)
+
+            # Radio máximo seguro basado en la distancia al borde más cercano
+            max_radius_at_uv = min_uv_dist * min_side * safe_fraction
+            radius = max_radius_at_uv * self.sampler.next_1d()
+
+        # --- Radiancia: dropout de canales o uniforme ---
+        if not channel_dropout:
+            radiance = mi.Color3f(
+                self.sampler.next_1d() * 20,
+                self.sampler.next_1d() * 20,
+                self.sampler.next_1d() * 20
+            )
+        else:
+            on_off_patterns = [
+                (0, 0, 1),
+                (0, 1, 0),
+                (0, 1, 1),
+                (1, 0, 0),
+                (1, 0, 1),
+                (1, 1, 0),
+                (1, 1, 1),
+            ]
+            pattern = on_off_patterns[seed % len(on_off_patterns)]
+
+            r_rnd = self.sampler.next_1d()
+            g_rnd = self.sampler.next_1d()
+            b_rnd = self.sampler.next_1d()
+
+            r = pattern[0] * r_rnd
+            g = pattern[1] * g_rnd
+            b = pattern[2] * b_rnd
+
+            norm = dr.sqrt(r**2 + g**2 + b**2) + 1e-8  # evitar división por cero
+            scale = total_power / norm
+
+            radiance = mi.Color3f(r * scale, g * scale, b * scale)
+
+        return position, normal, radius, radiance, shape
+
+
+    def sample_random_emitter_160625(self, scene, seed, channel_dropout=True, total_power = 21.19):
         """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
 
         self.sampler.set_sample_count(1)

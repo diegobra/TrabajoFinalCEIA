@@ -298,8 +298,108 @@ class MyPathTracer(mi.SamplingIntegrator):
 
         return sampled_point
 
-
     def emitter_hit_indirect(self, sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
+                            emitters, point_direct_light=False,
+                            include_emitter_radiance=False,
+                            tolerance=1e-4):
+
+        if point_direct_light:
+            sampled_emitter_pos, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance = random.choice(emitters)
+            center_emitter_pos = sampled_emitter_pos
+        else:
+            if len(emitters) == 1:
+                (center_emitter_pos, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitters[0]
+                sampled_emitter_pos = self.sample_emitter_point(sampler, center_emitter_pos, sampled_emitter_normal, sampled_emitter_radius)
+            else:
+
+                sample = sampler.next_1d()
+                emitter_index = dr.floor(sample * len(emitters))
+                emitter_index = mi.UInt32(dr.clamp(emitter_index, 0, len(emitters) - 1))
+
+                positions, normals, radiuss, radiances = zip(*emitters)
+
+                positions_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in positions], dtype=np.float32))
+                normals_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in normals], dtype=np.float32))
+                radius_array = mi.Float(np.array([p[0] for p in radiuss], dtype=np.float32))
+                radiances_array = mi.Point3f(np.array([(p[0][0], p[1][0], p[2][0]) for p in radiances], dtype=np.float32))
+
+                center_emitter_pos  = dr.gather(mi.Point3f, positions_array, emitter_index)
+                selected_normal     = dr.gather(mi.Point3f, normals_array, emitter_index)
+                selected_radius     = dr.gather(mi.Float, radius_array, emitter_index)
+                selected_radiances  = dr.gather(mi.Point3f, radiances_array, emitter_index)
+
+                #emitter = random.choice(emitters)
+                #(_, sampled_emitter_normal, sampled_emitter_radius, sampled_emitter_radiance) = emitter
+                sampled_emitter_pos = self.sample_emitter_point(sampler, center_emitter_pos, selected_normal, selected_radius)
+                sampled_emitter_normal = selected_normal
+                sampled_emitter_radius = selected_radius
+                sampled_emitter_radiance = selected_radiances
+
+        # Normalizada
+        nor = sampled_emitter_normal / dr.norm(sampled_emitter_normal)
+        d = si.p - center_emitter_pos
+        dist_plano = dr.dot(d, nor)
+
+        belongs = dr.abs(dist_plano) < tolerance
+        d_plano = d - dist_plano * nor
+        belongs &= (dr.norm(d_plano) < sampled_emitter_radius)
+
+        d_to_emitter = sampled_emitter_pos - si.p
+        dist_sq = dr.squared_norm(d_to_emitter)
+        dist_to_emitter = dr.sqrt(dist_sq)
+        d_to_emitter = d_to_emitter / dr.sqrt(dist_sq)
+
+        cos_theta_raw = dr.dot(-d_to_emitter, nor)
+        valid_cos = cos_theta_raw > 1e-3
+        cos_theta = dr.select(valid_cos, cos_theta_raw, 0.0)
+
+        emitter_area = dr.pi * sampled_emitter_radius ** 2
+
+        emitter_pdf = dr.select(
+            valid_cos & (cos_theta > 1e-4) & ~prev_bsdf_delta,
+            dr.maximum(dist_sq / (emitter_area * cos_theta), 1e-8),
+            0.0
+        )
+
+        if not include_emitter_radiance:
+            belongs &= valid_cos
+
+        Le_cero = dr.zeros(type(sampled_emitter_radiance))
+        Le = dr.select(belongs, sampled_emitter_radiance, Le_cero) if include_emitter_radiance else Le_cero
+
+        mis = mis_weight(prev_bsdf_pdf, emitter_pdf)
+        radiancia = throughput * mis * Le
+
+        # === SHADOW RAY CHECK ===
+        si_normal = si.n
+        mask = dr.dot(si_normal, d_to_emitter) < 0
+        si_normal = dr.select(mask, -si_normal, si_normal)
+
+        epsilon = dr.maximum(1e-3, 1e-4 * dist_to_emitter)
+        shadow_ray = mi.Ray3f(
+            o=si.p + epsilon * si_normal,
+            d=d_to_emitter,
+            time=si.time,
+            wavelengths=si.wavelengths
+        )
+
+        shadow_hit = scene.ray_intersect(shadow_ray)
+        valid_light_mask = dr.neq(shadow_hit.t, dr.inf) & (shadow_hit.t > dist_to_emitter - 0.01)
+        valid_light_mask &= valid_cos
+
+        if dr.any(valid_light_mask):
+            bsdf_val, _ = si.bsdf().eval_pdf(bsdf_ctx, si, si.to_local(d_to_emitter), active=True)
+            dist_sq = dr.maximum(dist_sq, 1e-4)
+            bsdf_val = dr.minimum(bsdf_val, 50.0)  # o un valor adecuado a tu escena
+            indirect_radiance = throughput * bsdf_val * sampled_emitter_radiance * cos_theta * dr.rcp(dist_sq)
+            radiancia += dr.select(valid_light_mask, indirect_radiance, mi.Color3f(0.0))
+
+        return radiancia
+
+
+
+
+    def emitter_hit_indirect_160625(self, sampler, scene, bsdf_ctx, throughput, prev_si, prev_bsdf_pdf, prev_bsdf_delta, si,
                     emitters, point_direct_light=False,
                     include_emitter_radiance=False,
                     tolerance=1e-3):

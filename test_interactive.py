@@ -14,6 +14,7 @@ from common import (compute_output_metrics, configure_compute, create_integrator
                     load_dataset, prepare_learned_objects)
 from nerad.integrator.highquality import HighQuality
 from nerad.model.config import ObjectConfig, TestConfig, TrainConfig
+from nerad.model.sampler import ShapeSampler
 from nerad.utils.render_utils import render_and_save_image
 from nerad.utils.sensor_utils import create_sensor
 from nerad.utils.json_utils import write_json
@@ -33,7 +34,7 @@ def tensor_to_opencv(outputs):
     para visualizar en OpenCV.
     """
     # Convertir a Bitmap de Mitsuba con la misma configuración usada al guardar PNG
-    img_mi = mi.Bitmap(outputs[0].numpy())
+    img_mi = mi.Bitmap(outputs[1].numpy())
 
     # Convertir a formato sRGB (igual que cuando se guarda como PNG)
     img_mi = img_mi.convert(
@@ -123,12 +124,24 @@ def on_mouse_click(event, x, y, flags, param):
 
             parm_img_clicked[0] = True
 
-            emitter_pos = position
-            emitter_normal = normal
-            emitter_radius = mi.Float(0.10)
-            emitter_radiance = mi.Color3f(17.,12.,4.)
+            # emitter_pos = position
+            # emitter_normal = normal
+            # emitter_radius = mi.Float(0.10)
+            # emitter_radiance = mi.Color3f(17.,12.,4.)
+
+            # test_integrators['image'].add_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+
+
+            shape_sampler = ShapeSampler(scene, no_specular_samples=False)
+
+            # Generar emisor aleatorio contenido en superficie plana
+            seed = int(time.time() * 1000) % (2**32 - 1)
+            emitter_pos, emitter_normal, emitter_radius, emitter_radiance, _ = shape_sampler.sample_random_emitter(
+                scene, seed
+            )
 
             test_integrators['image'].add_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+
 
 def interactive_render(cfg_test_rendering, scene, transforms, images, test_integrators, out_root):
     """
