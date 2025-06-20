@@ -145,11 +145,7 @@ class ShapeSampler():
 
         # --- Radiancia: dropout de canales o uniforme ---
         if not channel_dropout:
-            radiance = mi.Color3f(
-                self.sampler.next_1d() * 20,
-                self.sampler.next_1d() * 20,
-                self.sampler.next_1d() * 20
-            )
+            pattern = (1, 1, 1)
         else:
             on_off_patterns = [
                 (0, 0, 1),
@@ -162,18 +158,18 @@ class ShapeSampler():
             ]
             pattern = on_off_patterns[seed % len(on_off_patterns)]
 
-            r_rnd = self.sampler.next_1d()
-            g_rnd = self.sampler.next_1d()
-            b_rnd = self.sampler.next_1d()
+        r_rnd = self.sampler.next_1d()
+        g_rnd = self.sampler.next_1d()
+        b_rnd = self.sampler.next_1d()
 
-            r = pattern[0] * r_rnd
-            g = pattern[1] * g_rnd
-            b = pattern[2] * b_rnd
+        r = pattern[0] * r_rnd
+        g = pattern[1] * g_rnd
+        b = pattern[2] * b_rnd
 
-            norm = dr.sqrt(r**2 + g**2 + b**2) + 1e-8  # evitar división por cero
-            scale = total_power / norm
+        norm = dr.sqrt(r**2 + g**2 + b**2) + 1e-8  # evitar división por cero
+        scale = total_power / norm
 
-            radiance = mi.Color3f(r * scale, g * scale, b * scale)
+        radiance = mi.Color3f(r * scale, g * scale, b * scale)
 
         return position, normal, radius, radiance, shape
 

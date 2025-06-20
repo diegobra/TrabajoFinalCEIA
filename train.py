@@ -204,35 +204,60 @@ def main(cfg: TrainConfig = None):
                     )
 
             if val_outputs is not None and "nerad" in rendering.integrator:
-                residual = val_outputs[0]              # Residual L1 por píxel (dr)
+                residual = val_outputs[0]              # Residual L2 relativo por píxel (dr)
                 pred = val_outputs[1]                  # Predicción de la red
                 target = val_outputs[2]                # Valor de referencia (Monte Carlo)
 
-                # --- Parte 1: métrica escalar (residual promedio L1) ---
+                # --- Parte 1: métrica escalar (residual promedio del integrador) ---
                 residual_mean = dr.mean(residual)
                 writer.add_scalar("metric_fixed/residual_dr_mean", residual_mean[0], global_step=step)
 
                 # --- Parte 2: SSIM ---
-                # Convertir a torch y reordenar a [B, C, H, W]
                 pred_torch = torch.from_numpy(np.array(pred)).permute(2, 0, 1).unsqueeze(0).float()
                 target_torch = torch.from_numpy(np.array(target)).permute(2, 0, 1).unsqueeze(0).float()
 
-                # Asegurar que estén en [0,1]
                 pred_torch = torch.clamp(pred_torch, 0.0, 1.0)
                 target_torch = torch.clamp(target_torch, 0.0, 1.0)
 
                 ssim_value = ssim_metric(pred_torch, target_torch)
                 writer.add_scalar("metric_fixed/ssim", ssim_value.item(), global_step=step)
 
-                # --- Parte 2.5: L1 relativo ---
-                eps = 1e-2  # Pequeño valor para evitar división por cero
+                # --- Parte 2.5: L1 relativo global ---
+                eps = 1e-2
 
                 abs_diff = torch.abs(pred_torch - target_torch)
-                numerator = torch.sum(abs_diff)
-                denominator = torch.sum(torch.abs(target_torch)) + eps
+                denom_l1_gt = target_torch + eps
+                l1_relative = (abs_diff / denom_l1_gt).mean().item()
+                writer.add_scalar("metric_fixed/l1_relative_global", l1_relative, global_step=step)
 
-                l1_relative = (numerator / denominator).item()
-                writer.add_scalar("metric_fixed/l1_relative", l1_relative, global_step=step)
+                # --- Parte 2.6: L1 relativo "both" (por píxel) ---
+                denom_l1_both = 0.5 * (pred_torch + target_torch) + eps
+                l1_rel_both = (abs_diff / denom_l1_both).mean().item()
+                writer.add_scalar("metric_fixed/l1_relative_both", l1_rel_both, global_step=step)
+
+                # --- Parte 2.7: L1 relativo "both" global ---
+                numerator_both_global = torch.sum(abs_diff)
+                denominator_both_global = torch.sum(0.5 * (pred_torch + target_torch)) + eps
+                l1_rel_both_global = (numerator_both_global / denominator_both_global).item()
+                writer.add_scalar("metric_fixed/l1_relative_both_global", l1_rel_both_global, global_step=step)
+
+                # --- Parte 2.8: L2 relativo "both" (por píxel) ---
+                denom_l2_both = 0.5 * (pred_torch + target_torch)
+                l2_rel_both = ((pred_torch - target_torch) ** 2) / (denom_l2_both ** 2 + eps)
+                l2_rel_both_mean = l2_rel_both.mean().item()
+                writer.add_scalar("metric_fixed/l2_relative_both", l2_rel_both_mean, global_step=step)
+
+                # --- Parte 2.9: L2 relativo "both" global ---
+                numerator_l2 = torch.sum((pred_torch - target_torch) ** 2)
+                denominator_l2 = torch.sum((0.5 * (pred_torch + target_torch)) ** 2) + eps
+                l2_rel_both_global = (numerator_l2 / denominator_l2).item()
+                writer.add_scalar("metric_fixed/l2_relative_both_global", l2_rel_both_global, global_step=step)
+
+                # --- Parte 2.10: Reimplementación exacta de residual_dr_mean ---
+                residual_channels = ((pred_torch - target_torch) ** 2) / ((0.5 * (pred_torch + target_torch)) ** 2 + eps)
+                residual_mean_equiv = residual_channels.mean(dim=(0, 2, 3))  # promedio por canal
+                residual_mean_equiv_scalar = residual_mean_equiv.mean().item()  # promedio entre canales
+                writer.add_scalar("metric_fixed/residual_dr_mean_equiv", residual_mean_equiv_scalar, global_step=step)
 
                 # --- Parte 3: mapa visual para TensorBoard ---
                 residual_np = np.array(residual)
@@ -240,6 +265,8 @@ def main(cfg: TrainConfig = None):
                 residual_chw = residual_np.transpose(2, 0, 1)
 
                 writer.add_image("metric_fixed/residual_map", residual_chw, global_step=step, dataformats='CHW')
+
+
 
 
 

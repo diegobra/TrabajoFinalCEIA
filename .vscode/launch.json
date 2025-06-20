@@ -172,7 +172,7 @@
                 "test_rendering.image.point_direct_light=false",
                 "test_rendering.image.weighted_sampling=false",
                 "test_rendering.image.paralell_rendering=false",
-                "test_rendering.image.only_indirect=false",
+                "test_rendering.image.only_indirect=true",
                 "blocksize=512",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-23-13-37-18-cbox",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-24-17-39-54-cbox glossy_left_short",
@@ -189,7 +189,7 @@
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-03-19-23-17-08-livingroom",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-05-20-20-41-10-cbox_norm_emitter_ok",
                 //"experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-06-04-20-48-42-cbox",
-                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-06-15-22-28-33-cbox",
+                "experiment=/home/diego/Documents/neural-radiosity/output/nerad/2025-06-15-18-01-20-cbox_nerad_var_emitter",
             ]
         },
         {
