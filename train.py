@@ -133,6 +133,7 @@ def main(cfg: TrainConfig = None):
 
         time_profiler.start("forward")
 
+        # El residuo tiene dr.shape = [3, 32768]
         loss = dr.mean(integrator.compute_residual(scene, cfg.batch_size, step + 1))
 
         time_profiler.end("forward")
@@ -204,6 +205,7 @@ def main(cfg: TrainConfig = None):
                     )
 
             if val_outputs is not None and "nerad" in rendering.integrator:
+                # Shape de residual = TensorXf(shape=(512, 512, 3))
                 residual = val_outputs[0]              # Residual L2 relativo por píxel (dr)
                 pred = val_outputs[1]                  # Predicción de la red
                 target = val_outputs[2]                # Valor de referencia (Monte Carlo)

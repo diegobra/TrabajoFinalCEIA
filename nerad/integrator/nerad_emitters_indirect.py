@@ -302,7 +302,6 @@ class NeradEmittersIndirect(Nerad, nn.Module):
 
         residual = dr.select(valid_ray, self.residual_function.compute_loss(LHS, RHS), 0)
 
-
         return rgb, valid_ray, [aov.x, aov.y, aov.z, dr.select(valid_ray, mi.Float(1), mi.Float(0)), residual.x, residual.y, residual.z]
 
     def extract_inputs_old(self, si):
