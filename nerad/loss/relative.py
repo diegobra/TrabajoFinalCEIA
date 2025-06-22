@@ -2,7 +2,6 @@ import drjit as dr
 
 from nerad.loss import LossFucntion, loss_registry
 
-
 class RelativeLoss(LossFucntion):
     def __init__(self, n_steps: int) -> None:
         super().__init__()

@@ -210,27 +210,49 @@ def main(cfg: TrainConfig = None):
                 pred = val_outputs[1]                  # Predicción de la red
                 target = val_outputs[2]                # Valor de referencia (Monte Carlo)
 
+                # save_validation_outputs(residual, pred, target)
+
                 # --- Parte 1: métrica escalar (residual promedio del integrador) ---
                 residual_mean = dr.mean(residual)
                 writer.add_scalar("metric_fixed/residual_dr_mean", residual_mean[0], global_step=step)
 
                 # --- Parte 2: SSIM ---
-                pred_torch = torch.from_numpy(np.array(pred)).permute(2, 0, 1).unsqueeze(0).float()
-                target_torch = torch.from_numpy(np.array(target)).permute(2, 0, 1).unsqueeze(0).float()
+                #pred_torch = torch.from_numpy(np.array(pred)).permute(2, 0, 1).unsqueeze(0).float()
+                #target_torch = torch.from_numpy(np.array(target)).permute(2, 0, 1).unsqueeze(0).float()
 
-                pred_torch = torch.clamp(pred_torch, 0.0, 1.0)
-                target_torch = torch.clamp(target_torch, 0.0, 1.0)
+                pred_torch = torch.from_numpy(np.array(pred).astype(np.float64)).permute(2, 0, 1).unsqueeze(0)
+                target_torch = torch.from_numpy(np.array(target).astype(np.float64)).permute(2, 0, 1).unsqueeze(0)
+
+                #pred_torch = torch.clamp(pred_torch, 0.0, 1.0)
+                #target_torch = torch.clamp(target_torch, 0.0, 1.0)
+
+                # Eliminar el canal alfa si está presente
+                pred_torch = pred_torch[:, :3, :, :]
+                target_torch = target_torch[:, :3, :, :]
 
                 ssim_value = ssim_metric(pred_torch, target_torch)
                 writer.add_scalar("metric_fixed/ssim", ssim_value.item(), global_step=step)
 
                 # --- Parte 2.5: L1 relativo global ---
                 eps = 1e-2
-
                 abs_diff = torch.abs(pred_torch - target_torch)
+
                 denom_l1_gt = target_torch + eps
                 l1_relative = (abs_diff / denom_l1_gt).mean().item()
                 writer.add_scalar("metric_fixed/l1_relative_global", l1_relative, global_step=step)
+
+                # --- Parte 2.5.1: L1 absoluto ---
+                l1_abs = abs_diff.mean().item()
+                writer.add_scalar("metric_fixed/l1_absolute", l1_abs, global_step=step)
+
+                # --- Parte 2.5.2: L2 absoluto ---
+                l2_abs = ((pred_torch - target_torch) ** 2).mean().item()
+                writer.add_scalar("metric_fixed/l2_absolute", l2_abs, global_step=step)
+
+                # --- Parte 2.5.3: RMSE (Root Mean Square Error) ---
+                rmse = torch.sqrt(((pred_torch - target_torch) ** 2).mean()).item()
+                writer.add_scalar("metric_fixed/rmse", rmse, global_step=step)
+
 
                 # --- Parte 2.6: L1 relativo "both" (por píxel) ---
                 denom_l1_both = 0.5 * (pred_torch + target_torch) + eps
@@ -242,6 +264,8 @@ def main(cfg: TrainConfig = None):
                 denominator_both_global = torch.sum(0.5 * (pred_torch + target_torch)) + eps
                 l1_rel_both_global = (numerator_both_global / denominator_both_global).item()
                 writer.add_scalar("metric_fixed/l1_relative_both_global", l1_rel_both_global, global_step=step)
+
+
 
                 # --- Parte 2.8: L2 relativo "both" (por píxel) ---
                 denom_l2_both = 0.5 * (pred_torch + target_torch)
@@ -325,6 +349,78 @@ def find_latest_ckpt(folder: Path) -> Optional[Path]:
         key=lambda a: a[0]
     )
     return files[-1][1]
+
+def save_validation_outputs(residual, pred, target, file_path="validation_log.csv"):
+    import os
+    import numpy as np
+
+    # Convertir a arrays de numpy
+    residual_np = np.array(residual)
+    pred_np = np.array(pred)
+    target_np = np.array(target)
+
+    H, W, C = pred_np.shape  # Obtener alto, ancho y cantidad de canales
+
+    # Aplanar: (H, W, C) -> (H*W, C)
+    residual_np = residual_np.reshape(-1, 3)
+    pred_np = pred_np.reshape(-1, C)
+    target_np = target_np.reshape(-1, C)
+
+    write_header = not os.path.exists(file_path)
+
+    with open(file_path, "a") as f:
+        if write_header:
+            headers = [f"residual_c{i}" for i in range(3)] + \
+                      [f"target_c{i}" for i in range(C)] + \
+                      [f"pred_c{i}" for i in range(C)]
+            f.write(",".join(headers) + "\n")
+
+        for r, t, p in zip(residual_np, target_np, pred_np):
+            row = list(r) + list(t) + list(p)
+            f.write(",".join(map(str, row)) + "\n")
+
+
+import os
+import numpy as np
+
+def save_pred_target_l2rel_rgb_csv(pred_torch, target_torch, l2_rel_tensor, file_path="pred_target_l2rel_rgb.csv"):
+    """
+    Guarda pred_torch, target_torch y el error relativo L2 por canal en un CSV plano.
+
+    Cada fila contiene:
+        - target_c0, target_c1, target_c2
+        - pred_c0, pred_c1, pred_c2
+        - l2_rel_c0, l2_rel_c1, l2_rel_c2 (por canal y píxel)
+
+    Parámetros:
+        pred_torch: Tensor [1, 3, H, W]
+        target_torch: Tensor [1, 3, H, W]
+        l2_rel_tensor: Tensor [1, 3, H, W] ya calculado con ((pred - target)^2) / (0.5*(pred + target))^2 + eps
+        file_path: Ruta del CSV
+    """
+    # Convertir a numpy y reordenar a [H, W, C]
+    pred_np = pred_torch.squeeze(0).permute(1, 2, 0).cpu().numpy()    # [H, W, 3]
+    target_np = target_torch.squeeze(0).permute(1, 2, 0).cpu().numpy()
+    l2rel_np = l2_rel_tensor.squeeze(0).permute(1, 2, 0).cpu().numpy()
+
+    # Aplanar
+    pred_flat = pred_np.reshape(-1, 3)
+    target_flat = target_np.reshape(-1, 3)
+    l2rel_flat = l2rel_np.reshape(-1, 3)
+
+    write_header = not os.path.exists(file_path)
+
+    with open(file_path, "a") as f:
+        if write_header:
+            headers = [f"target_c{i}" for i in range(3)] + \
+                      [f"pred_c{i}" for i in range(3)] + \
+                      [f"l2_rel_c{i}" for i in range(3)]
+            f.write(",".join(headers) + "\n")
+
+        for t, p, l in zip(target_flat, pred_flat, l2rel_flat):
+            row = list(t) + list(p) + list(l)
+            f.write(",".join(map(str, row)) + "\n")
+
 
 
 if __name__ == "__main__":
