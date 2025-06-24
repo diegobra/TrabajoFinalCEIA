@@ -112,35 +112,60 @@ def on_mouse_click(event, x, y, flags, param):
     """
     Callback que se activa cuando el usuario hace clic en la imagen renderizada.
     """
-    if event == cv2.EVENT_LBUTTONDOWN:
-        scene, sensor, img_width, img_height, test_integrators, parm_img_clicked = param
-        #print(f"Click en imagen en ({x}, {y})")
+    scene, sensor, img_width, img_height, test_integrators, transforms, parm_img_clicked = param
+    #print(f"Click en imagen en ({x}, {y})")
 
-        # Obtener intersección
-        position, normal = get_intersection(scene, sensor, x, y, img_width, img_height)
+    # Obtener intersección
+    position, normal = get_intersection(scene, sensor, x, y, img_width, img_height)
 
-        if position is not None:
-            #print(f"Coordenadas en mundo: {position}")
+    if position is not None:
+        #print(f"Coordenadas en mundo: {position}")
+
+        if event == cv2.EVENT_LBUTTONDOWN:
 
             parm_img_clicked[0] = True
 
-            # emitter_pos = position
-            # emitter_normal = normal
-            # emitter_radius = mi.Float(0.10)
-            # emitter_radiance = mi.Color3f(17.,12.,4.)
+            emitter_pos = position
+            emitter_normal = normal
+            emitter_radius = mi.Float(0.10)
+            emitter_radiance = mi.Color3f(17.,12.,4.)
+
+            test_integrators['image'].add_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+
+
+            # shape_sampler = ShapeSampler(scene, no_specular_samples=False)
+
+            # # Generar emisor aleatorio contenido en superficie plana
+            # seed = int(time.time() * 1000) % (2**32 - 1)
+            # emitter_pos, emitter_normal, emitter_radius, emitter_radiance, _ = shape_sampler.sample_random_emitter(
+            #     scene, seed
+            # )
 
             # test_integrators['image'].add_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
 
+        elif event == cv2.EVENT_MBUTTONDOWN:
+            # Mover y orientar la cámara mirando en dirección contraria a la normal
+            forward = -normal / dr.norm(normal)[0]
 
-            shape_sampler = ShapeSampler(scene, no_specular_samples=False)
+            # Vector hacia arriba (referencia mundial)
+            world_up = mi.Vector3f(0.0, 1.0, 0.0)
 
-            # Generar emisor aleatorio contenido en superficie plana
-            seed = int(time.time() * 1000) % (2**32 - 1)
-            emitter_pos, emitter_normal, emitter_radius, emitter_radiance, _ = shape_sampler.sample_random_emitter(
-                scene, seed
-            )
+            # Evitar degeneración si la normal es vertical
+            if abs(dr.dot(forward, world_up)[0]) > 0.99:
+                world_up = mi.Vector3f(0.0, 0.0, 1.0)
 
-            test_integrators['image'].add_emitter(emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
+            right = dr.normalize(dr.cross(world_up, forward))
+            up = dr.cross(forward, right)
+
+            # Construir nueva matriz to_world desde los vectores base
+            new_to_world = np.eye(4)
+            new_to_world[0, :3] = np.array(right)
+            new_to_world[1, :3] = np.array(up)
+            new_to_world[2, :3] = np.array(forward)
+            new_to_world[:3, 3] = np.array(position)
+
+            transforms['0']['to_world'] = new_to_world.tolist()
+            parm_img_clicked[0] = True
 
 
 def interactive_render(cfg_test_rendering, scene, transforms, images, test_integrators, out_root):
@@ -160,6 +185,11 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
 
     img_LHS_np = None
     sensor = None
+
+    if "fov" not in transforms['0']:
+        transforms['0']["fov"] = 45.0  # Valor por defecto si no está presente
+
+    current_fov = transforms['0']["fov"]
 
     while True:
 
@@ -206,10 +236,21 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
             fps = 1.0 / last_render_time if last_render_time > 0 else 0.0
 
             # Dibujar FPS sobre la imagen
-            cv2.putText(img_LHS_np, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+            #cv2.putText(img_LHS_np, f"FPS: {fps:.2f}", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+            cv2.putText(
+                img_LHS_np,
+                f"FPS: {fps:.2f}",
+                (10, 30),
+                cv2.FONT_HERSHEY_DUPLEX,   # Fuente más limpia y moderna
+                0.7,                       # Tamaño más equilibrado
+                (240, 240, 240),           # Color blanco suave
+                1,
+                cv2.LINE_AA                # Antialiasing activado
+            )
 
 
-        cv2.setMouseCallback("Renderizado Interactivo", on_mouse_click, param=(scene, sensor, img_width, img_height, test_integrators, parm_img_clicked))
+
+        cv2.setMouseCallback("Renderizado Interactivo", on_mouse_click, param=(scene, sensor, img_width, img_height, test_integrators, transforms, parm_img_clicked))
 
         if parm_img_clicked[0] == True:
             recalculate_image = True
@@ -219,44 +260,38 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
 
         if key == 27:  # Tecla 'ESC' para salir
             break
-        elif key == 83 or key == 81:  # Flecha derecha o flecha izquierda
-
-            # Ángulo de rotación en radianes (positivo o negativo)
+        elif key == 83 or key == 81:  # Flecha derecha o izquierda: rotar sobre el eje Y de la cámara (yaw)
             theta = -2.0 * np.pi / 180 if key == 83 else 2.0 * np.pi / 180
-
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
 
-            # Obtener la matriz de transformación actual
-            to_world = np.array(transforms['0']['to_world'])
-
-            # Extraer la posición de la cámara (última columna de la matriz)
-            camera_pos = to_world[:3, 3]
-
-            # Definir el punto alrededor del cual rotará la cámara (centro de la escena)
-            center_of_rotation = np.array([0, 0, 0])  # Modificar si el centro de la escena es otro
-
-            # Calcular el vector desde el centro de la escena a la cámara
-            camera_offset = camera_pos - center_of_rotation
-
-            # Aplicar la rotación alrededor del eje Y global
+            # Matriz de rotación alrededor del eje Y local (yaw)
             R_y = np.array([
-                [cos_t,  0, sin_t],
-                [0,      1, 0    ],
-                [-sin_t, 0, cos_t]
+                [ cos_t, 0, sin_t, 0],
+                [     0, 1,     0, 0],
+                [-sin_t, 0, cos_t, 0],
+                [     0, 0,     0, 1]
             ])
 
-            # Rotar solo la posición de la cámara en torno al centro de la escena
-            new_camera_offset = R_y @ camera_offset
-            new_camera_pos = center_of_rotation + new_camera_offset
+            # Obtener matriz to_world actual
+            to_world = np.array(transforms['0']['to_world'])
 
-            # Actualizar solo la posición en la matriz de transformación
-            to_world[:3, 3] = new_camera_pos
+            # Extraer la posición (columna 3)
+            position = to_world[:3, 3].copy()
 
-            # Guardar la nueva transformación sin cambiar la orientación
+            # Eliminar la traslación temporalmente
+            to_world[:3, 3] = 0
+
+            # Aplicar rotación (local yaw)
+            to_world = R_y @ to_world
+
+            # Restaurar la posición original
+            to_world[:3, 3] = position
+
+            # Guardar transformación
             transforms['0']['to_world'] = to_world.tolist()
-
             recalculate_image = True
+
 
         elif key == 82 or key == 84:  # Flecha arriba
 
@@ -282,33 +317,53 @@ def interactive_render(cfg_test_rendering, scene, transforms, images, test_integ
             recalculate_image = True
 
         elif key == ord('w') or key == ord('s'):
-
-            # Ángulo de rotación en radianes (negativo para mirar hacia abajo)
-            if key == ord('w'):
-                theta = -5 * np.pi / 180
-            else:
-                theta = 5 * np.pi / 180
+            theta = -5 * np.pi / 180 if key == ord('w') else 5 * np.pi / 180
             cos_t = np.cos(theta)
             sin_t = np.sin(theta)
 
-            # Matriz de rotación alrededor del eje X
+            # Matriz de rotación alrededor del eje X local de la cámara
             R_x = np.array([
-                [1,    0,      0,    0],
-                [0, cos_t, -sin_t,  0],
-                [0, sin_t,  cos_t,  0],
-                [0,    0,      0,    1]
+                [1,     0,      0,     0],
+                [0, cos_t, -sin_t,     0],
+                [0, sin_t,  cos_t,     0],
+                [0,     0,      0,     1]
             ])
 
-            # Matriz de transformación actual
+            # Obtener la matriz to_world actual
             to_world = np.array(transforms['0']['to_world'])
 
-            # Aplicar la rotación multiplicando R_x * to_world
-            to_world_rotated = R_x @ to_world
+            # Guardar la posición actual
+            position = to_world[:3, 3].copy()
 
-            # Guardar la transformación modificada
-            transforms['0']['to_world'] = to_world_rotated.tolist()
+            # Eliminar traslación temporalmente
+            to_world[:3, 3] = 0
 
+            # Aplicar rotación local (rotar la cámara sobre su eje X)
+            to_world = to_world @ R_x
+
+            # Restaurar la posición
+            to_world[:3, 3] = position
+
+            transforms['0']['to_world'] = to_world.tolist()
             recalculate_image = True
+
+        elif key == ord('m'):  # aumentar FOV
+            current_fov = min(120.0, current_fov + 5.0)
+            transforms['0']["fov"] = current_fov
+            print(f"Nuevo FOV: {current_fov}")
+            recalculate_image = True
+
+        elif key == ord('n'):  # disminuir FOV
+            current_fov = max(5.0, current_fov - 5.0)
+            transforms['0']["fov"] = current_fov
+            print(f"Nuevo FOV: {current_fov}")
+            recalculate_image = True
+
+        elif key == ord('i'):
+            cfg_test_rendering.only_indirect = not cfg_test_rendering.only_indirect
+            test_integrators['image'].set_custom_config(cfg_test_rendering, interactive_test=True)
+            recalculate_image = True
+
 
         elif key == ord('c'):
             test_integrators['image'].clear_emitters()
