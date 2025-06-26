@@ -7,6 +7,8 @@ from mytorch.registry import Registry, import_children
 from mytorch.utils.profiling_utils import counter_profiler, time_profiler
 from nerad.utils.mitsuba_utils import vec_to_tens_safe
 
+RADIUS_MAX = 0.5
+RADIANCE_MAX = 21.19
 
 class MitsubaWrapper(nn.Module):
     def __init__(self, scene_min: float, scene_max: float, name: str = None):
@@ -20,7 +22,17 @@ class MitsubaWrapper(nn.Module):
         if counter_profiler.enabled:
             counter_profiler.record(f"{self.name}.eval.pts", dr.shape(pts)[1])
         time_profiler.start(f"{self.name}.eval")
+
         pts = (pts - self.scene_min) / (self.scene_max - self.scene_min)
+
+        # Normalizar radio
+        if emitter_radius is not None:
+            emitter_radius = dr.clamp(emitter_radius / RADIUS_MAX, 0.0, 1.0)
+
+        # Normalizar radiancia
+        if emitter_radiance is not None:
+            emitter_radiance = emitter_radiance / RADIANCE_MAX
+
         result = self._eval(pts, dirs, norms, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance)
         time_profiler.end(f"{self.name}.eval")
         return result

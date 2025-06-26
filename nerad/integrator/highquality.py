@@ -185,17 +185,17 @@ class HighQuality(mi.SamplingIntegrator):
         sensor.film().prepare(self.integrator.aov_names())
         has_aov = len(self.integrator.aov_names())>0
 
-        direct_light_masks = self.compute_direct_light_masks(scene, sensor, self.integrator, spp, circular_emitters)
-        direct_light_masks = self.extract_soft_shadow_edges_opencv(direct_light_masks)
+        # direct_light_masks = self.compute_direct_light_masks(scene, sensor, self.integrator, spp, circular_emitters)
+        # direct_light_masks = self.extract_soft_shadow_edges_opencv(direct_light_masks)
 
-        # Se combinan las máscaras individuales por emisor
-        combined_mask = direct_light_masks[0]
-        for mask in direct_light_masks[1:]:
-            combined_mask = dr.maximum(combined_mask, mask)
+        # # Se combinan las máscaras individuales por emisor
+        # combined_mask = direct_light_masks[0]
+        # for mask in direct_light_masks[1:]:
+        #     combined_mask = dr.maximum(combined_mask, mask)
 
-        bitmap = mi.Bitmap(combined_mask, pixel_format=mi.Bitmap.PixelFormat.Y)
-        bitmap = bitmap.convert(component_format=mi.Struct.Type.UInt8)
-        bitmap.write("combined_mask.png")
+        # bitmap = mi.Bitmap(combined_mask, pixel_format=mi.Bitmap.PixelFormat.Y)
+        # bitmap = bitmap.convert(component_format=mi.Struct.Type.UInt8)
+        # bitmap.write("combined_mask.png")
 
         for i in tqdm(range(spiral.block_count())):
             block_offset, block_size, block_id = spiral.next_block()
