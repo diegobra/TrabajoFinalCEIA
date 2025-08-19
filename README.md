@@ -1,92 +1,62 @@
-Neural Radiosity
----
+# Simulación de Iluminación Global con Redes Neuronales
 
-Code release for the paper, *Neural Radiosity*, accepted to SIGGRAPH Asia 2021 TOG.
+Este repositorio implementa un sistema de simulación de **iluminación global en escenas tridimensionales mediante redes neuronales**, desarrollado en el marco del Trabajo Final de la *Carrera de Especialización en Inteligencia Artificial (FIUBA)*.
 
-[Project Homepage](https://saeedhd96.github.io/neural-radiosity/)
+El proyecto toma como **base el repositorio [Neural Radiosity](https://saeedhd96.github.io/neural-radiosity/)** de *Hadadan et al. (SIGGRAPH Asia 2021)*, extendiéndolo con nuevas funcionalidades y adaptaciones que permiten:  
 
+- Incorporar **emisores variables** como entrada a la red neuronal.  
+- Entrenar la red para estimar **únicamente la iluminación indirecta**, calculando la directa mediante ray tracing.  
+- Soportar escenas con múltiples emisores, renderizado interactivo y visualización en paralelo de componentes directa/indirecta.  
+
+## Objetivo del proyecto
+
+El propósito es investigar si las redes neuronales pueden reemplazar parcialmente a los métodos clásicos de radiosidad, **reduciendo memoria y tiempo computacional** sin sacrificar fidelidad visual.  
+
+Se compararon variantes del modelo, evaluando su desempeño en términos de **métricas objetivas (RMSE, SSIM)** y de apreciación visual.  
+
+## Entorno y dependencias
+
+El entorno se basa en las mismas tecnologías del repositorio original:  
+- [Mitsuba 3](https://mitsuba-renderer.org/)  
+- [Dr.Jit](https://github.com/mitsuba-renderer/drjit)  
+- [PyTorch](https://pytorch.org/)  
+
+Requisitos básicos:  
+```bash
+CUDA >= 11.7
+Python >= 3.9
 ```
-Saeed Hadadan, University of Maryland, College Park
-Shuhong Chen, University of Maryland, College Park
-Matthias Zwicker, University of Maryland, College Park
-```
 
-## Environment Setup
-
-Prepare an environment with CUDA 11.7.
-Then, in virtualenv or Conda, install PyTorch and other dependencies:
-
-```
+Instalación de dependencias principales:  
+```bash
 pip install torch==1.13.1+cu117 torchvision==0.14.1+cu117 torchaudio==0.13.1 --extra-index-url https://download.pytorch.org/whl/cu117
 pip install -r init/requirements.txt
 ```
 
-Newer versions of CUDA and PyTorch and Mitsuba should work but have not been tested.
+## Ejemplos de uso
 
-### Installing OpenEXR
+### Entrenamiento (Cornell Box)
 
-1. Linux users should install `libopenexr-dev`
-1. Windows users should use Conda and run `conda install -c conda-forge openexr`
-
-## How to Train
-
-Download our data from [Google Drive](https://drive.google.com/drive/folders/1UE4ESxgXK4uL2_f91GqEKmWrvWw2FX8C?usp=sharing).
-
-Training scripts can be found in `./sample_scripts`. Copy them to `./scripts` and edit the data and output paths.
-
-As an exmple, to train for living room scene, run **in this folder**:
-
+Ejecutar `watchdog.py` con la configuración de entrenamiento:  
 ```bash
-source ./init/init.source  # do this once per shell
-
-bash ./scripts/all_scenes/living_room.sh  # our method
+python watchdog.py   out_root=output/nerad   saving=[latest]   batch_size=32768   learning_rate=0.0005   rendering.spp=64   validation.image.step_size=250   validation.image.first_step=true   saving.latest.step_size=1000   n_steps=30000   lr_decay_start=10000   lr_decay_rate=0.35   lr_decay_steps=10000   lr_decay_min_rate=0.01   dataset.scene=data/NeRad_paper_scenes/cornell-box/scene.xml   rendering.config.use_autocast_rhs=false   name=cbox
 ```
 
-We have prepared scripts to train for all scenes, using different encodings:
+### Renderizado interactivo
 
+Ejecutar `test_interactive.py` sobre un experimento ya entrenado:  
 ```bash
-source ./init/init.source  # do this once per shell
-
-bash ./scripts/all_scenes/all_sparse_grid.sh  # our method using sparse grids
-bash ./scripts/all_scenes/all_hash_grid.sh  # Multi resolution hash encoing by Muller et al. [2022]
-bash ./scripts/all_scenes/all_dense_grid.sh  # our method using dense grids
-
+python test_interactive.py   test_rendering.image.spp=64   test_rendering.image.spp_network=1   test_rendering.image.width=512   test_rendering.image.point_direct_light=false   test_rendering.image.weighted_sampling=false   test_rendering.image.paralell_rendering=true   test_rendering.image.only_indirect=true   blocksize=512   experiment=output/nerad/2025-06-26-19-07-21-cbox_indirect_scd
 ```
 
+Esto abre un visualizador interactivo donde se puede modificar la posición de la cámara y la configuración de los emisores.
 
-## How to Evaluate
+## Créditos
 
-Suppose the training folder is `/output/nerad/2023-05-28-22-13-30-living_room`, simply run:
+- **Repositorio original**: [Neural Radiosity](https://github.com/saeedhd96/neural-radiosity) (Hadadan et al., 2021).  
+- **Implementación y extensiones**: Diego Braga – FIUBA, 2025.  
 
-```bash
-python test.py \
-    test_rendering.image.spp=2048 \
-    test_rendering.image.width=512 \
-    blocksize=32 \
-    experiment=/output/nerad/2023-05-28-22-13-30-living_room
-```
+## Licencia
 
-All views in the dataset is rendered to `$TRAINING_FOLDER/test/latest`. Check `test.py` and `nerad/model/config.py` for available options.
-
-## Cite
-
-```bibtex
-@article{10.1145/3478513.3480569,
-author = {Hadadan, Saeed and Chen, Shuhong and Zwicker, Matthias},
-title = {Neural Radiosity},
-year = {2021},
-issue_date = {December 2021},
-publisher = {Association for Computing Machinery},
-address = {New York, NY, USA},
-volume = {40},
-number = {6},
-issn = {0730-0301},
-url = {https://doi.org/10.1145/3478513.3480569},
-doi = {10.1145/3478513.3480569},
-abstract = {We introduce Neural Radiosity, an algorithm to solve the rendering equation by minimizing the norm of its residual, similar as in classical radiosity techniques. Traditional basis functions used in radiosity, such as piecewise polynomials or meshless basis functions are typically limited to representing isotropic scattering from diffuse surfaces. Instead, we propose to leverage neural networks to represent the full four-dimensional radiance distribution, directly optimizing network parameters to minimize the norm of the residual. Our approach decouples solving the rendering equation from rendering (perspective) images similar as in traditional radiosity techniques, and allows us to efficiently synthesize arbitrary views of a scene. In addition, we propose a network architecture using geometric learnable features that improves convergence of our solver compared to previous techniques. Our approach leads to an algorithm that is simple to implement, and we demonstrate its effectiveness on a variety of scenes with diffuse and non-diffuse surfaces.},
-journal = {ACM Trans. Graph.},
-month = {dec},
-articleno = {236},
-numpages = {11},
-keywords = {neural rendering, neural radiance field}
-}```
+El código de este repositorio se publica con fines académicos.  
+Consultar la licencia original de *Neural Radiosity* para más detalles.  
