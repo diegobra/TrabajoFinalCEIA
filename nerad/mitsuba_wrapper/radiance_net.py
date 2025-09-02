@@ -10,7 +10,7 @@ from nerad.model.tcnn_embedding import TcnnEmbedding
 from nerad.model.multires_grid import MutliResGrid
 from nerad.utils.mitsuba_utils import vec_to_tens_safe
 
-#from torch.cuda.amp import autocast
+# from torch.cuda.amp import autocast
 
 def create_embedding(config):
     if config['otype'] == 'SparseGrid':
@@ -137,11 +137,11 @@ class RadianceMLP(nn.Module):
         # print("net_in max:", net_in.abs().max().item())
         # print("net_in dtype:", net_in.dtype)
 
-        #if self.use_autocast_rhs:
+        # if self.use_autocast_rhs:
         #    with autocast():
         #        ret = self.network(net_in) # ret.shape = torch.Size([32768, 3])
         #        return torch.abs(ret.float())
-        #else:
+        # else:
         ret = self.network(net_in) # ret.shape = torch.Size([32768, 3])
         return torch.abs(ret)
 

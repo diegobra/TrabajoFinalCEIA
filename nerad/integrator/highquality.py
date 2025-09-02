@@ -180,6 +180,8 @@ class HighQuality(mi.SamplingIntegrator):
                 # emitter_radius = mi.Float(0.10)
                 # emitter_radiance = mi.Color3f(17., 12., 4.)
 
+                # circular_emitters.append((emitter_pos, emitter_normal, emitter_radius, emitter_radiance))
+
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)
         sensor.film().prepare(self.integrator.aov_names())
@@ -420,9 +422,10 @@ class HighQuality(mi.SamplingIntegrator):
             else:
 
                 start_sequential = time.perf_counter()
+                compute_indirect()
                 if not self.only_indirect:
                     compute_direct()
-                compute_indirect()
+
                 end_sequential = time.perf_counter()
 
                 print(f"Tiempo total (secuencial): {end_sequential - start_sequential:.3f} s")
@@ -499,6 +502,8 @@ class HighQuality(mi.SamplingIntegrator):
                 # emitter_normal = mi.Point3f(0.0, -1.0, 0.0)
                 # emitter_radius = mi.Float(0.10)
                 # emitter_radiance = mi.Color3f(17., 12., 4.)
+
+                # circular_emitters.append((emitter_pos, emitter_normal, emitter_radius, emitter_radiance))
 
         #Prepare the spiral
         spiral = mi.Spiral(sensor.film().crop_size(), mi.ScalarVector2i(0,0), self.block_size)

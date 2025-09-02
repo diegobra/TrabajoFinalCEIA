@@ -90,9 +90,13 @@ def get_intersection(scene, sensor, x, y, img_width, img_height):
     if si.is_valid()[0]:
 
         normal = si.n
+        print('si.n = ', si.n)
+        print('ray.d = ', ray.d)
 
         # Determinar si el rayo impactó desde dentro o fuera de la cara
         dot_product = dr.dot(si.n, ray.d)
+
+        print('dot_product = ', dot_product)
 
         if dot_product[0] > 0:  # Si el rayo impactó desde dentro, invertir la normal
             #print("El rayo impactó desde dentro, invirtiendo la normal")
@@ -409,6 +413,12 @@ def main(cfg: TestConfig = None):
             integrator_injection["residual_function"] = residual_loss_function
         integrator_function_injection = {"device": device}
 
+        # cfg.test_rendering["image"].integrator = "path"
+        # cfg.test_rendering["image"].config = OmegaConf.create({
+        #     "max_depth": 8,
+        #     "rr_depth": 5
+        # })
+
         integrator = create_integrator(rendering, scene, cfg.dataset.scene, post_init_injection=integrator_injection,
                                        kwargs_injection=integrator_function_injection)
 
@@ -438,6 +448,7 @@ def main(cfg: TestConfig = None):
         view_indices = list(range(n_views))
 
     cfg_test_rendering = cfg.test_rendering["image"]
+
     test_integrators['image'].set_custom_config(cfg_test_rendering, interactive_test=True)
     interactive_render(cfg_test_rendering, scene, transforms, images, test_integrators, out_root)
 

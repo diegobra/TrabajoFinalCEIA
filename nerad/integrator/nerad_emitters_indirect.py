@@ -190,7 +190,7 @@ class NeradEmittersIndirect(Nerad, nn.Module):
         pts, dirs, normals, albedo = self.extract_inputs(si)
 
         # Se evalúa la radiosidad para cada interacción en la red neuronal
-        #self.network.set_use_autocast_rhs(use_autocast_lhs) # Se usaría autocast en LHS sólo para inferencia. Para entrenamiento no funciona bien con backpropagation
+        # self.network.set_use_autocast_rhs(use_autocast_lhs) # Se usaría autocast en LHS sólo para inferencia. Para entrenamiento no funciona bien con backpropagation
         LHS = dr.select(active & si.is_valid(), self.network.eval(pts, dirs, normals, albedo, emitter_pos, emitter_normal, emitter_radius, emitter_radiance), mi.Vector3f(0))
 
         # Se calcula LHS para los rayos válidos

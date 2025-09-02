@@ -86,7 +86,7 @@ class ShapeSampler():
 
         return to_ret, prob
 
-    def sample_random_emitter(self, scene, seed, channel_dropout=True, total_power=21.19):
+    def sample_random_emitter(self, scene, seed, channel_dropout=False, total_power=21.19):
         """Muestra una posición aleatoria en cualquier superficie de la escena y la devuelve como un emisor."""
 
         self.sampler.set_sample_count(1)
