@@ -90,13 +90,13 @@ def get_intersection(scene, sensor, x, y, img_width, img_height):
     if si.is_valid()[0]:
 
         normal = si.n
-        print('si.n = ', si.n)
-        print('ray.d = ', ray.d)
+        # print('si.n = ', si.n)
+        # print('ray.d = ', ray.d)
 
         # Determinar si el rayo impactó desde dentro o fuera de la cara
         dot_product = dr.dot(si.n, ray.d)
 
-        print('dot_product = ', dot_product)
+        # print('dot_product = ', dot_product)
 
         if dot_product[0] > 0:  # Si el rayo impactó desde dentro, invertir la normal
             #print("El rayo impactó desde dentro, invirtiendo la normal")
