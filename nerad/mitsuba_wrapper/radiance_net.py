@@ -137,6 +137,7 @@ class RadianceMLP(nn.Module):
         # print("net_in max:", net_in.abs().max().item())
         # print("net_in dtype:", net_in.dtype)
 
+        # Descomentar para habilitar autocast
         # if self.use_autocast_rhs:
         #    with autocast():
         #        ret = self.network(net_in) # ret.shape = torch.Size([32768, 3])
